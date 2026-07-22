@@ -1,0 +1,625 @@
+﻿# ============================================================
+# Exact file location: .gitignore
+# Horseshoe Tavern AI
+# Phase 1 Part 1.25
+# Python, environment, database, IDE, logs, cache, test,
+# deployment, temporary, secret, and operating-system exclusions
+# ============================================================
+
+
+# ============================================================
+# SECTION 01 - ENVIRONMENT AND SECRETS
+# ============================================================
+
+.env
+.env.*
+!.env.example
+
+*.env
+*.env.local
+*.env.development
+*.env.production
+*.env.test
+
+secrets/
+secret/
+private/
+credentials/
+credential/
+
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+
+service-account*.json
+credentials*.json
+oauth*.json
+client-secret*.json
+client_secret*.json
+
+.npmrc
+.pypirc
+.netrc
+
+# Keep safe templates
+!.env.example
+
+
+# ============================================================
+# SECTION 02 - PYTHON BYTECODE AND CACHE
+# ============================================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+*.pyc
+*.pyo
+*.pyd
+
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+.cache/
+.pytype/
+.dmypy.json
+dmypy.json
+
+
+# ============================================================
+# SECTION 03 - PYTHON VIRTUAL ENVIRONMENTS
+# ============================================================
+
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+.python-version
+
+pip-wheel-metadata/
+pip-log.txt
+pip-delete-this-directory.txt
+
+
+# ============================================================
+# SECTION 04 - BUILD AND DISTRIBUTION OUTPUT
+# ============================================================
+
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+
+# ============================================================
+# SECTION 05 - LOCAL DATABASE FILES
+# ============================================================
+
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite3-journal
+*.sqlite-shm
+*.sqlite-wal
+
+horseshoe_tavern_ai.db
+horseshoe_tavern_ai.sqlite
+horseshoe_tavern_ai.sqlite3
+
+local.db
+development.db
+test.db
+
+database_backups/
+db_backups/
+backups/
+backup/
+
+
+# ============================================================
+# SECTION 06 - DATABASE EXPORTS AND DUMPS
+# ============================================================
+
+*.sql
+*.dump
+*.backup
+*.bak
+
+database_exports/
+data_exports/
+exports/
+
+# Allow migration SQL only when intentionally stored under migrations
+!migrations/**/*.sql
+!alembic/**/*.sql
+
+
+# ============================================================
+# SECTION 07 - LOGS AND RUNTIME FILES
+# ============================================================
+
+*.log
+logs/
+log/
+
+*.pid
+*.pid.lock
+*.seed
+
+runtime/
+run/
+
+gunicorn.pid
+uvicorn.pid
+
+celerybeat-schedule
+celerybeat.pid
+
+
+# ============================================================
+# SECTION 08 - TEMPORARY AND SCRATCH FILES
+# ============================================================
+
+tmp/
+temp/
+temporary/
+scratch/
+
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.old
+*.orig
+*.rej
+
+~$*
+*~
+.#*
+
+debug/
+debug_output/
+diagnostics/
+diagnostic_output/
+
+
+# ============================================================
+# SECTION 09 - TEST OUTPUT
+# ============================================================
+
+test-results/
+test_reports/
+reports/
+report/
+
+junit.xml
+pytest-report.xml
+
+.coverage
+coverage.json
+coverage.lcov
+
+snapshots/
+__snapshots__/
+
+tests/output/
+tests/tmp/
+tests/temp/
+
+
+# ============================================================
+# SECTION 10 - IDE AND EDITOR FILES
+# ============================================================
+
+.idea/
+.vscode/
+
+*.iml
+*.ipr
+*.iws
+
+.project
+.classpath
+.settings/
+
+*.code-workspace
+
+.spyproject/
+.spyderproject/
+
+.ropeproject/
+
+.history/
+
+
+# ============================================================
+# SECTION 11 - WINDOWS FILES
+# ============================================================
+
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+
+Desktop.ini
+
+$RECYCLE.BIN/
+
+*.lnk
+
+System Volume Information/
+
+
+# ============================================================
+# SECTION 12 - MACOS FILES
+# ============================================================
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+Icon
+
+._*
+
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+
+.com.apple.timemachine.donotpresent
+
+
+# ============================================================
+# SECTION 13 - LINUX FILES
+# ============================================================
+
+.directory
+.Trash-*
+.nfs*
+
+
+# ============================================================
+# SECTION 14 - NODE AND FRONTEND ARTIFACTS
+# ============================================================
+
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.npm/
+.yarn/
+.pnpm-store/
+
+.next/
+.nuxt/
+.svelte-kit/
+dist-client/
+build-client/
+
+.parcel-cache/
+.vite/
+.eslintcache
+
+coverage/
+storybook-static/
+
+
+# ============================================================
+# SECTION 15 - STATIC BUILD GENERATED OUTPUT
+# ============================================================
+
+static-build/
+public-build/
+frontend-build/
+
+app/static/generated/
+app/static/cache/
+app/static/tmp/
+
+*.map
+
+# Keep application-authored widget source files
+!app/static/widget/horseshoe-widget.js
+!app/static/widget/horseshoe-widget.css
+!app/static/widget/widget-preview.html
+
+
+# ============================================================
+# SECTION 16 - UPLOADS AND USER-GENERATED CONTENT
+# ============================================================
+
+uploads/
+uploaded_files/
+user_uploads/
+media/uploads/
+
+app/uploads/
+app/media/uploads/
+
+attachments/
+customer_attachments/
+
+*.upload
+*.part
+
+
+# ============================================================
+# SECTION 17 - PRIVATE USER AND CUSTOMER DATA
+# ============================================================
+
+customer_data/
+personal_data/
+private_event_submissions/
+feedback_exports/
+conversation_exports/
+
+pii/
+redacted_data/
+unredacted_data/
+
+analytics_exports/
+raw_analytics/
+
+*.csv.private
+*.json.private
+*.ndjson.private
+
+
+# ============================================================
+# SECTION 18 - MACHINE LEARNING ARTIFACTS
+# ============================================================
+
+models/
+model_artifacts/
+checkpoints/
+artifacts/
+
+*.joblib
+*.pickle
+*.pkl
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.keras
+
+tensorboard/
+mlruns/
+wandb/
+
+training_data/
+training_output/
+validation_output/
+
+
+# ============================================================
+# SECTION 19 - LOCAL KNOWLEDGE INGESTION OUTPUT
+# ============================================================
+
+knowledge_cache/
+knowledge_exports/
+knowledge_snapshots/
+knowledge_staging/
+
+source_cache/
+source_downloads/
+source_snapshots/
+
+review_queue_exports/
+promotion_candidates/
+
+unverified_knowledge/
+rejected_knowledge/
+
+# Keep authored seed and migration files when intentionally created
+!app/data/seed/
+!app/data/seed/**
+!app/database/migrations/
+!app/database/migrations/**
+
+
+# ============================================================
+# SECTION 20 - LOCAL API AND TOOL CACHES
+# ============================================================
+
+.http/
+requests/
+responses/
+
+api_cache/
+http_cache/
+scrape_cache/
+
+playwright-report/
+test-results/
+blob-report/
+
+.browser/
+browser-data/
+
+
+# ============================================================
+# SECTION 21 - RENDER AND DEPLOYMENT LOCAL STATE
+# ============================================================
+
+.render/
+render-local/
+render-cache/
+
+.deploy/
+deployment_output/
+deployment_logs/
+
+Procfile.local
+docker-compose.override.yml
+compose.override.yml
+
+
+# ============================================================
+# SECTION 22 - DOCKER LOCAL OUTPUT
+# ============================================================
+
+.docker/
+docker-data/
+docker-volumes/
+
+*.tar
+*.tar.gz
+*.tgz
+
+
+# ============================================================
+# SECTION 23 - ALEMBIC AND MIGRATION TEMP FILES
+# ============================================================
+
+alembic/__pycache__/
+migrations/__pycache__/
+
+migration_backups/
+migration_output/
+migration_drafts/
+
+*.migration.tmp
+
+
+# ============================================================
+# SECTION 24 - DOCUMENTATION BUILD OUTPUT
+# ============================================================
+
+docs/_build/
+site/
+mkdocs-site/
+
+.sphinx-build/
+doctrees/
+
+
+# ============================================================
+# SECTION 25 - NOTEBOOKS
+# ============================================================
+
+.ipynb_checkpoints/
+
+*.nbconvert.ipynb
+
+
+# ============================================================
+# SECTION 26 - LOCAL CONFIGURATION OVERRIDES
+# ============================================================
+
+config.local.py
+config.local.json
+config.local.yaml
+config.local.yml
+
+settings.local.py
+settings.local.json
+settings.local.yaml
+settings.local.yml
+
+local_settings.py
+
+
+# ============================================================
+# SECTION 27 - PROFILING AND PERFORMANCE OUTPUT
+# ============================================================
+
+*.prof
+*.lprof
+*.pstats
+
+profiles/
+profiling/
+benchmarks/output/
+
+memory_profile/
+performance_reports/
+
+
+# ============================================================
+# SECTION 28 - SECURITY SCANNER OUTPUT
+# ============================================================
+
+bandit-report.*
+safety-report.*
+pip-audit-report.*
+semgrep-report.*
+trivy-report.*
+
+security_reports/
+security_output/
+
+
+# ============================================================
+# SECTION 29 - LOCK FILE POLICY
+# ============================================================
+
+# Keep dependency lock files when intentionally created.
+# Do not ignore:
+# requirements.txt
+# requirements.lock
+# poetry.lock
+# uv.lock
+# Pipfile.lock
+# package-lock.json
+# pnpm-lock.yaml
+# yarn.lock
+
+
+# ============================================================
+# SECTION 30 - REQUIRED PROJECT FILES THAT MUST REMAIN TRACKABLE
+# ============================================================
+
+!.gitignore
+!.env.example
+!requirements.txt
+!render.yaml
+
+!app/
+!app/**
+
+# Local secrets and generated data remain ignored by the earlier rules.

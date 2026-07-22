@@ -1,0 +1,17 @@
+﻿{
+  "schema_version": "1.0.0",
+  "mappings": [
+    {
+      "input": "tn",
+      "meaning": "tonight"
+    },
+    {
+      "input": "u guys",
+      "meaning": "you"
+    },
+    {
+      "input": "what's on",
+      "meaning": "what events are happening"
+    }
+  ]
+}

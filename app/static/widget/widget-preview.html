@@ -1,0 +1,126 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <title>Horseshoe Tavern AI Widget Preview</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 200vh;
+            margin: 0;
+
+            font-family:
+                Arial,
+                sans-serif;
+
+            background:
+                linear-gradient(
+                    145deg,
+                    #f0ece4,
+                    #d9d1c5
+                );
+
+            color: #222;
+        }
+
+        header {
+            position: sticky;
+            top: 0;
+
+            padding: 24px 7vw;
+
+            background:
+                rgba(255, 255, 255, 0.92);
+
+            border-bottom:
+                1px solid
+                rgba(0, 0, 0, 0.12);
+
+            backdrop-filter:
+                blur(12px);
+        }
+
+        main {
+            width:
+                min(
+                    1100px,
+                    calc(100% - 40px)
+                );
+
+            margin: 40px auto;
+        }
+
+        section {
+            min-height: 460px;
+
+            margin-bottom: 30px;
+            padding: 40px;
+
+            border-radius: 24px;
+
+            background: white;
+
+            box-shadow:
+                0 20px 55px
+                rgba(0, 0, 0, 0.12);
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <strong>
+            Horseshoe Tavern Website Preview
+        </strong>
+    </header>
+
+    <main>
+        <section>
+            <h1>Horseshoe Tavern</h1>
+
+            <p>
+                This preview represents an existing website page.
+                The chatbot should remain globally available in the
+                lower-right corner.
+            </p>
+        </section>
+
+        <section>
+            <h2>Menu Page Simulation</h2>
+
+            <p>
+                Navigate, scroll, open, collapse, resize, and refresh
+                the browser to confirm persistence.
+            </p>
+        </section>
+
+        <section>
+            <h2>Private Events Simulation</h2>
+
+            <p>
+                The same browser session and conversation state should
+                remain available after refreshing this page.
+            </p>
+        </section>
+    </main>
+
+    <script
+        src="./horseshoe-widget.js"
+        data-business="horseshoe-tavern"
+        data-base-url="http://127.0.0.1:8000"
+        data-stylesheet-url="./horseshoe-widget.css"
+        data-api-enabled="false"
+        data-position="bottom-right"
+        data-default-size="compact"
+        defer
+    ></script>
+</body>
+</html>

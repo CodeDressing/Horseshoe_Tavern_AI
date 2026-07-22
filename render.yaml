@@ -1,0 +1,141 @@
+﻿# ============================================================
+# Exact file location: render.yaml
+# Horseshoe Tavern AI
+# Phase 1 Part 1.23
+# Render Blueprint for FastAPI, PostgreSQL, health checks,
+# deployment environment, and production runtime
+# ============================================================
+
+services:
+  - type: web
+    name: horseshoe-tavern-ai
+    runtime: python
+    plan: free
+    region: ohio
+
+    rootDir: .
+
+    buildCommand: >-
+      python -m pip install --upgrade pip setuptools wheel &&
+      python -m pip install --no-cache-dir -r requirements.txt &&
+      python -m compileall -q app
+
+    startCommand: >-
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port $PORT
+      --workers 1
+      --proxy-headers
+      --forwarded-allow-ips="*"
+
+    healthCheckPath: /health
+
+    autoDeployTrigger: commit
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.3
+
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+
+      - key: ENVIRONMENT
+        value: production
+
+      - key: DEBUG
+        value: "false"
+
+      - key: LOG_LEVEL
+        value: INFO
+
+      - key: APP_NAME
+        value: Horseshoe Tavern AI
+
+      - key: APP_VERSION
+        value: 1.0.0
+
+      - key: DEFAULT_BUSINESS_SLUG
+        value: horseshoe-tavern
+
+      - key: BUSINESS_DISPLAY_NAME
+        value: Horseshoe Tavern
+
+      - key: INITIALIZE_DATABASE_ON_STARTUP
+        value: "true"
+
+      - key: DATABASE_ECHO
+        value: "false"
+
+      - key: DATABASE_POOL_SIZE
+        value: "5"
+
+      - key: DATABASE_MAX_OVERFLOW
+        value: "10"
+
+      - key: DATABASE_POOL_TIMEOUT_SECONDS
+        value: "30"
+
+      - key: DATABASE_POOL_RECYCLE_SECONDS
+        value: "300"
+
+      - key: MAXIMUM_MESSAGE_CHARACTERS
+        value: "3000"
+
+      - key: CONTEXT_TTL_MINUTES
+        value: "45"
+
+      - key: KNOWLEDGE_STALE_AFTER_DAYS
+        value: "45"
+
+      - key: CORS_ALLOWED_ORIGINS
+        value: >-
+          https://www.thehorseshoetavern.com,
+          https://thehorseshoetavern.com
+
+      - key: ALLOWED_HOSTS
+        value: >-
+          horseshoe-tavern-ai.onrender.com,
+          www.thehorseshoetavern.com,
+          thehorseshoetavern.com
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: horseshoe-tavern-ai-db
+          property: connectionString
+
+      - key: SECRET_KEY
+        generateValue: true
+
+      - key: SESSION_SIGNING_KEY
+        generateValue: true
+
+      - key: FEEDBACK_REVIEW_REQUIRED
+        value: "true"
+
+      - key: AUTOMATIC_KNOWLEDGE_PROMOTION
+        value: "false"
+
+      - key: HUMAN_HANDOFF_ENABLED
+        value: "true"
+
+      - key: PRIVATE_EVENTS_ENABLED
+        value: "true"
+
+      - key: FEEDBACK_ENABLED
+        value: "true"
+
+      - key: CONVERSATION_RESTORE_ENABLED
+        value: "true"
+
+    domains: []
+
+databases:
+  - name: horseshoe-tavern-ai-db
+    plan: free
+    region: ohio
+    databaseName: horseshoe_tavern_ai
+    user: horseshoe_tavern_ai
+    ipAllowList: []

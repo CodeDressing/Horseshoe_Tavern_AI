@@ -1,0 +1,1330 @@
+﻿/* ==========================================================
+Exact file location: app/static/widget/horseshoe-widget.css
+Horseshoe Tavern AI
+Phase 1 Part 1.6
+Global persistent chatbot widget styling
+========================================================== */
+
+/* ==========================================================
+SECTION 01 - HOST AND DESIGN TOKENS
+========================================================== */
+
+:host {
+    all: initial;
+
+    --horseshoe-gold: #d4a64a;
+    --horseshoe-gold-light: #f0cf7a;
+    --horseshoe-gold-dark: #9d722a;
+
+    --horseshoe-charcoal: #111416;
+    --horseshoe-charcoal-soft: #1b2024;
+    --horseshoe-panel: #171b1f;
+    --horseshoe-panel-soft: #22282d;
+
+    --horseshoe-cream: #f7f0df;
+    --horseshoe-text: #f9f7f0;
+    --horseshoe-muted: #b9bdc0;
+
+    --horseshoe-success: #63d58a;
+    --horseshoe-warning: #f6c453;
+    --horseshoe-danger: #ec7777;
+
+    --horseshoe-border:
+        rgba(255, 255, 255, 0.12);
+
+    --horseshoe-shadow:
+        0 24px 70px rgba(0, 0, 0, 0.45);
+
+    --horseshoe-radius-large: 26px;
+    --horseshoe-radius-medium: 18px;
+    --horseshoe-radius-small: 12px;
+
+    --horseshoe-z-index: 2147483000;
+
+    font-family:
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
+    color-scheme: dark;
+}
+
+/* ==========================================================
+SECTION 02 - ROOT WIDGET
+========================================================== */
+
+.horseshoe-widget,
+.horseshoe-widget *,
+.horseshoe-widget *::before,
+.horseshoe-widget *::after {
+    box-sizing: border-box;
+}
+
+.horseshoe-widget {
+    position: fixed;
+    right:
+        max(
+            20px,
+            env(safe-area-inset-right)
+        );
+    bottom:
+        max(
+            20px,
+            env(safe-area-inset-bottom)
+        );
+
+    z-index: var(--horseshoe-z-index);
+
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+
+    pointer-events: none;
+}
+
+.horseshoe-widget[data-widget-position="bottom-left"] {
+    right: auto;
+
+    left:
+        max(
+            20px,
+            env(safe-area-inset-left)
+        );
+
+    align-items: flex-start;
+}
+
+/* ==========================================================
+SECTION 03 - COLLAPSED OVAL LAUNCHER
+========================================================== */
+
+.horseshoe-launcher {
+    position: relative;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+
+    min-width: 168px;
+    min-height: 58px;
+
+    padding: 12px 21px;
+
+    border:
+        1px solid
+        rgba(240, 207, 122, 0.55);
+
+    border-radius: 999px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #252b30 0%,
+            #111416 58%,
+            #181d21 100%
+        );
+
+    color: var(--horseshoe-text);
+
+    font: inherit;
+    font-size: 15px;
+    font-weight: 750;
+    letter-spacing: 0.01em;
+
+    cursor: pointer;
+    pointer-events: auto;
+
+    box-shadow:
+        0 14px 34px rgba(0, 0, 0, 0.38),
+        0 0 0 1px rgba(212, 166, 74, 0.08),
+        0 0 18px rgba(212, 166, 74, 0.34);
+
+    transform: translateZ(0);
+
+    animation:
+        horseshoe-launcher-glow
+        2.8s
+        ease-in-out
+        infinite;
+
+    transition:
+        transform 180ms ease,
+        border-color 180ms ease,
+        box-shadow 180ms ease,
+        background 180ms ease;
+}
+
+.horseshoe-launcher::before {
+    content: "";
+
+    position: absolute;
+    inset: 3px;
+
+    border-radius: inherit;
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.06);
+
+    pointer-events: none;
+}
+
+.horseshoe-launcher:hover {
+    transform:
+        translateY(-3px)
+        scale(1.02);
+
+    border-color:
+        rgba(240, 207, 122, 0.9);
+
+    box-shadow:
+        0 18px 42px rgba(0, 0, 0, 0.48),
+        0 0 0 1px rgba(212, 166, 74, 0.18),
+        0 0 30px rgba(212, 166, 74, 0.55);
+}
+
+.horseshoe-launcher:active {
+    transform:
+        translateY(-1px)
+        scale(0.99);
+}
+
+.horseshoe-launcher:focus-visible {
+    outline:
+        3px solid
+        rgba(240, 207, 122, 0.58);
+
+    outline-offset: 4px;
+}
+
+.horseshoe-launcher__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 30px;
+    height: 30px;
+
+    border-radius: 999px;
+
+    background:
+        radial-gradient(
+            circle at 35% 30%,
+            var(--horseshoe-gold-light),
+            var(--horseshoe-gold)
+            50%,
+            var(--horseshoe-gold-dark)
+            100%
+        );
+
+    color: #151515;
+
+    font-size: 17px;
+    line-height: 1;
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.38),
+        0 0 16px rgba(212, 166, 74, 0.42);
+}
+
+.horseshoe-launcher__label {
+    white-space: nowrap;
+}
+
+.horseshoe-launcher__badge {
+    position: absolute;
+    top: -7px;
+    right: -5px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: 24px;
+    height: 24px;
+
+    padding: 0 7px;
+
+    border:
+        2px solid
+        var(--horseshoe-charcoal);
+
+    border-radius: 999px;
+
+    background: var(--horseshoe-danger);
+    color: white;
+
+    font-size: 11px;
+    font-weight: 800;
+
+    box-shadow:
+        0 5px 14px rgba(0, 0, 0, 0.35);
+}
+
+.horseshoe-launcher__badge[hidden] {
+    display: none;
+}
+
+@keyframes horseshoe-launcher-glow {
+    0%,
+    100% {
+        box-shadow:
+            0 14px 34px rgba(0, 0, 0, 0.38),
+            0 0 0 1px rgba(212, 166, 74, 0.08),
+            0 0 10px rgba(212, 166, 74, 0.20);
+    }
+
+    50% {
+        box-shadow:
+            0 16px 38px rgba(0, 0, 0, 0.44),
+            0 0 0 1px rgba(212, 166, 74, 0.20),
+            0 0 27px rgba(212, 166, 74, 0.52);
+    }
+}
+
+/* ==========================================================
+SECTION 04 - PANEL
+========================================================== */
+
+.horseshoe-panel {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+
+    display: grid;
+    grid-template-rows:
+        auto
+        minmax(0, 1fr)
+        auto
+        auto
+        auto;
+
+    width: 376px;
+    height: min(590px, calc(100dvh - 40px));
+
+    overflow: hidden;
+
+    border:
+        1px solid
+        rgba(240, 207, 122, 0.28);
+
+    border-radius:
+        var(--horseshoe-radius-large);
+
+    background:
+        linear-gradient(
+            165deg,
+            rgba(31, 36, 41, 0.995),
+            rgba(15, 18, 20, 0.995)
+        );
+
+    color: var(--horseshoe-text);
+
+    box-shadow:
+        var(--horseshoe-shadow),
+        0 0 0 1px rgba(255, 255, 255, 0.035);
+
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+
+    transform:
+        translateY(18px)
+        scale(0.96);
+
+    transform-origin:
+        bottom right;
+
+    transition:
+        opacity 210ms ease,
+        visibility 210ms ease,
+        transform 210ms ease,
+        width 220ms ease,
+        height 220ms ease,
+        border-radius 220ms ease;
+}
+
+.horseshoe-widget[data-widget-position="bottom-left"]
+.horseshoe-panel {
+    right: auto;
+    left: 0;
+
+    transform-origin:
+        bottom left;
+}
+
+.horseshoe-widget[data-widget-state="open"]
+.horseshoe-panel {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+
+    transform:
+        translateY(0)
+        scale(1);
+}
+
+.horseshoe-widget[data-widget-state="open"]
+.horseshoe-launcher {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+
+    transform:
+        translateY(10px)
+        scale(0.92);
+}
+
+.horseshoe-widget[data-widget-state="minimized"]
+.horseshoe-panel,
+.horseshoe-widget[data-widget-state="collapsed"]
+.horseshoe-panel {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.horseshoe-widget[data-widget-state="minimized"]
+.horseshoe-launcher,
+.horseshoe-widget[data-widget-state="collapsed"]
+.horseshoe-launcher {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* ==========================================================
+SECTION 05 - SIZE MODES
+========================================================== */
+
+.horseshoe-widget[data-widget-size="compact"]
+.horseshoe-panel {
+    width: 376px;
+    height: min(590px, calc(100dvh - 40px));
+}
+
+.horseshoe-widget[data-widget-size="expanded"]
+.horseshoe-panel {
+    width: min(500px, calc(100vw - 40px));
+    height: min(730px, calc(100dvh - 40px));
+}
+
+.horseshoe-widget[data-widget-size="fullscreen"] {
+    inset: 0;
+
+    align-items: center;
+    justify-content: center;
+
+    width: 100vw;
+    height: 100dvh;
+
+    padding:
+        max(18px, env(safe-area-inset-top))
+        max(18px, env(safe-area-inset-right))
+        max(18px, env(safe-area-inset-bottom))
+        max(18px, env(safe-area-inset-left));
+
+    background:
+        rgba(5, 7, 8, 0.64);
+
+    backdrop-filter:
+        blur(10px);
+
+    pointer-events: auto;
+}
+
+.horseshoe-widget[data-widget-size="fullscreen"]
+.horseshoe-panel {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    left: auto;
+
+    width: min(920px, 96vw);
+    height: min(860px, 94dvh);
+
+    transform-origin: center;
+}
+
+.horseshoe-widget[data-widget-size="fullscreen"]
+.horseshoe-launcher {
+    display: none;
+}
+
+/* ==========================================================
+SECTION 06 - HEADER
+========================================================== */
+
+.horseshoe-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+
+    min-height: 72px;
+
+    padding: 14px 14px 13px 16px;
+
+    border-bottom:
+        1px solid
+        var(--horseshoe-border);
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(212, 166, 74, 0.15),
+            rgba(255, 255, 255, 0.02)
+        );
+}
+
+.horseshoe-header__identity {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+
+    min-width: 0;
+}
+
+.horseshoe-header__mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    flex: 0 0 auto;
+
+    width: 42px;
+    height: 42px;
+
+    border:
+        1px solid
+        rgba(240, 207, 122, 0.58);
+
+    border-radius: 14px;
+
+    background:
+        linear-gradient(
+            145deg,
+            var(--horseshoe-gold-light),
+            var(--horseshoe-gold-dark)
+        );
+
+    color: #161616;
+
+    font-size: 19px;
+    font-weight: 900;
+
+    box-shadow:
+        0 8px 18px rgba(0, 0, 0, 0.26),
+        inset 0 1px 0 rgba(255, 255, 255, 0.48);
+}
+
+.horseshoe-header__titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+
+    min-width: 0;
+}
+
+.horseshoe-header__title {
+    overflow: hidden;
+
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.horseshoe-header__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    color: var(--horseshoe-muted);
+
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.horseshoe-header__status::before {
+    content: "";
+
+    width: 7px;
+    height: 7px;
+
+    border-radius: 999px;
+
+    background: var(--horseshoe-warning);
+
+    box-shadow:
+        0 0 8px rgba(246, 196, 83, 0.46);
+}
+
+.horseshoe-header__status[data-status="online"]::before {
+    background: var(--horseshoe-success);
+
+    box-shadow:
+        0 0 8px rgba(99, 213, 138, 0.5);
+}
+
+.horseshoe-header__status[data-status="offline"]::before {
+    background: var(--horseshoe-danger);
+
+    box-shadow:
+        0 0 8px rgba(236, 119, 119, 0.5);
+}
+
+.horseshoe-header__controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    flex: 0 0 auto;
+}
+
+.horseshoe-control-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 32px;
+    height: 32px;
+
+    padding: 0;
+
+    border:
+        1px solid
+        transparent;
+
+    border-radius: 10px;
+
+    background:
+        rgba(255, 255, 255, 0.045);
+
+    color: var(--horseshoe-muted);
+
+    font: inherit;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1;
+
+    cursor: pointer;
+
+    transition:
+        color 150ms ease,
+        background 150ms ease,
+        border-color 150ms ease,
+        transform 150ms ease;
+}
+
+.horseshoe-control-button:hover {
+    color: var(--horseshoe-text);
+
+    background:
+        rgba(212, 166, 74, 0.12);
+
+    border-color:
+        rgba(212, 166, 74, 0.28);
+
+    transform: translateY(-1px);
+}
+
+.horseshoe-control-button:focus-visible {
+    outline:
+        2px solid
+        var(--horseshoe-gold);
+
+    outline-offset: 2px;
+}
+
+/* ==========================================================
+SECTION 07 - CONVERSATION AREA
+========================================================== */
+
+.horseshoe-conversation {
+    min-height: 0;
+
+    overflow-x: hidden;
+    overflow-y: auto;
+
+    padding: 18px 15px 12px;
+
+    background:
+        radial-gradient(
+            circle at 15% 10%,
+            rgba(212, 166, 74, 0.07),
+            transparent 32%
+        );
+
+    scrollbar-width: thin;
+    scrollbar-color:
+        rgba(212, 166, 74, 0.4)
+        transparent;
+}
+
+.horseshoe-conversation::-webkit-scrollbar {
+    width: 8px;
+}
+
+.horseshoe-conversation::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.horseshoe-conversation::-webkit-scrollbar-thumb {
+    border:
+        2px solid
+        transparent;
+
+    border-radius: 999px;
+
+    background:
+        rgba(212, 166, 74, 0.38);
+
+    background-clip: content-box;
+}
+
+/* ==========================================================
+SECTION 08 - MESSAGES
+========================================================== */
+
+.horseshoe-message {
+    display: flex;
+    flex-direction: column;
+
+    margin-bottom: 13px;
+
+    animation:
+        horseshoe-message-enter
+        180ms
+        ease-out;
+}
+
+.horseshoe-message--assistant {
+    align-items: flex-start;
+}
+
+.horseshoe-message--user {
+    align-items: flex-end;
+}
+
+.horseshoe-message--system {
+    align-items: center;
+}
+
+.horseshoe-message__bubble {
+    max-width: min(88%, 680px);
+
+    padding: 11px 13px;
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.075);
+
+    border-radius:
+        17px
+        17px
+        17px
+        6px;
+
+    background:
+        var(--horseshoe-panel-soft);
+
+    color: var(--horseshoe-text);
+
+    box-shadow:
+        0 8px 20px rgba(0, 0, 0, 0.18);
+}
+
+.horseshoe-message--user
+.horseshoe-message__bubble {
+    border-color:
+        rgba(212, 166, 74, 0.35);
+
+    border-radius:
+        17px
+        17px
+        6px
+        17px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #b98735,
+            #7e5a20
+        );
+
+    color: white;
+}
+
+.horseshoe-message--system
+.horseshoe-message__bubble {
+    max-width: 94%;
+
+    padding: 8px 11px;
+
+    border-radius: 999px;
+
+    background:
+        rgba(255, 255, 255, 0.05);
+
+    color: var(--horseshoe-muted);
+}
+
+.horseshoe-message__text {
+    margin: 0;
+
+    font-size: 14px;
+    line-height: 1.55;
+
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.horseshoe-message__metadata {
+    margin-top: 4px;
+    padding: 0 5px;
+
+    color:
+        rgba(255, 255, 255, 0.42);
+
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.horseshoe-message-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+
+    margin-top: 10px;
+}
+
+.horseshoe-message-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: 34px;
+
+    padding: 7px 11px;
+
+    border:
+        1px solid
+        rgba(212, 166, 74, 0.35);
+
+    border-radius: 999px;
+
+    background:
+        rgba(212, 166, 74, 0.11);
+
+    color: var(--horseshoe-gold-light);
+
+    font: inherit;
+    font-size: 12px;
+    font-weight: 750;
+    text-decoration: none;
+
+    cursor: pointer;
+
+    transition:
+        background 150ms ease,
+        border-color 150ms ease,
+        transform 150ms ease;
+}
+
+.horseshoe-message-action:hover {
+    background:
+        rgba(212, 166, 74, 0.2);
+
+    border-color:
+        rgba(212, 166, 74, 0.65);
+
+    transform: translateY(-1px);
+}
+
+@keyframes horseshoe-message-enter {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ==========================================================
+SECTION 09 - TYPING INDICATOR
+========================================================== */
+
+.horseshoe-typing {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    min-width: 42px;
+    min-height: 20px;
+}
+
+.horseshoe-typing span {
+    width: 6px;
+    height: 6px;
+
+    border-radius: 999px;
+
+    background: var(--horseshoe-muted);
+
+    animation:
+        horseshoe-typing-bounce
+        1.2s
+        ease-in-out
+        infinite;
+}
+
+.horseshoe-typing span:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.horseshoe-typing span:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+@keyframes horseshoe-typing-bounce {
+    0%,
+    60%,
+    100% {
+        opacity: 0.45;
+        transform: translateY(0);
+    }
+
+    30% {
+        opacity: 1;
+        transform: translateY(-4px);
+    }
+}
+
+/* ==========================================================
+SECTION 10 - QUICK ACTIONS
+========================================================== */
+
+.horseshoe-quick-actions {
+    display: flex;
+    gap: 7px;
+
+    overflow-x: auto;
+
+    padding: 8px 13px 11px;
+
+    border-top:
+        1px solid
+        rgba(255, 255, 255, 0.045);
+
+    scrollbar-width: none;
+}
+
+.horseshoe-quick-actions::-webkit-scrollbar {
+    display: none;
+}
+
+.horseshoe-quick-action {
+    flex: 0 0 auto;
+
+    min-height: 34px;
+
+    padding: 7px 12px;
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.11);
+
+    border-radius: 999px;
+
+    background:
+        rgba(255, 255, 255, 0.045);
+
+    color: var(--horseshoe-cream);
+
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+
+    cursor: pointer;
+
+    transition:
+        background 150ms ease,
+        border-color 150ms ease,
+        color 150ms ease;
+}
+
+.horseshoe-quick-action:hover {
+    border-color:
+        rgba(212, 166, 74, 0.52);
+
+    background:
+        rgba(212, 166, 74, 0.12);
+
+    color: var(--horseshoe-gold-light);
+}
+
+/* ==========================================================
+SECTION 11 - COMPOSER
+========================================================== */
+
+.horseshoe-composer {
+    display: flex;
+    align-items: flex-end;
+    gap: 9px;
+
+    padding: 12px 13px;
+
+    border-top:
+        1px solid
+        var(--horseshoe-border);
+
+    background:
+        rgba(9, 11, 12, 0.74);
+}
+
+.horseshoe-composer__input {
+    flex: 1 1 auto;
+
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+    max-height: 128px;
+
+    resize: none;
+
+    padding: 12px 14px;
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.12);
+
+    border-radius: 16px;
+
+    outline: none;
+
+    background:
+        rgba(255, 255, 255, 0.055);
+
+    color: var(--horseshoe-text);
+
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.45;
+
+    transition:
+        border-color 150ms ease,
+        background 150ms ease,
+        box-shadow 150ms ease;
+}
+
+.horseshoe-composer__input::placeholder {
+    color:
+        rgba(255, 255, 255, 0.42);
+}
+
+.horseshoe-composer__input:focus {
+    border-color:
+        rgba(212, 166, 74, 0.68);
+
+    background:
+        rgba(255, 255, 255, 0.075);
+
+    box-shadow:
+        0 0 0 3px
+        rgba(212, 166, 74, 0.11);
+}
+
+.horseshoe-composer__input:disabled {
+    opacity: 0.62;
+    cursor: wait;
+}
+
+.horseshoe-composer__send {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    flex: 0 0 auto;
+
+    width: 46px;
+    height: 46px;
+
+    border:
+        1px solid
+        rgba(240, 207, 122, 0.65);
+
+    border-radius: 15px;
+
+    background:
+        linear-gradient(
+            145deg,
+            var(--horseshoe-gold-light),
+            var(--horseshoe-gold-dark)
+        );
+
+    color: #151515;
+
+    font: inherit;
+    font-size: 16px;
+    font-weight: 900;
+
+    cursor: pointer;
+
+    box-shadow:
+        0 9px 22px rgba(0, 0, 0, 0.28);
+
+    transition:
+        transform 150ms ease,
+        filter 150ms ease;
+}
+
+.horseshoe-composer__send:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.08);
+}
+
+.horseshoe-composer__send:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
+.horseshoe-composer__send.is-loading span {
+    animation:
+        horseshoe-send-spin
+        900ms
+        linear
+        infinite;
+}
+
+@keyframes horseshoe-send-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ==========================================================
+SECTION 12 - FOOTER
+========================================================== */
+
+.horseshoe-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+
+    padding: 7px 13px 9px;
+
+    color:
+        rgba(255, 255, 255, 0.36);
+
+    font-size: 9px;
+    font-weight: 600;
+}
+
+/* ==========================================================
+SECTION 13 - ACCESSIBILITY
+========================================================== */
+
+.horseshoe-visually-hidden {
+    position: absolute !important;
+
+    width: 1px !important;
+    height: 1px !important;
+
+    padding: 0 !important;
+    margin: -1px !important;
+
+    overflow: hidden !important;
+
+    clip: rect(0, 0, 0, 0) !important;
+    clip-path: inset(50%) !important;
+
+    white-space: nowrap !important;
+
+    border: 0 !important;
+}
+
+/* ==========================================================
+SECTION 14 - MOBILE
+========================================================== */
+
+@media (max-width: 640px) {
+    .horseshoe-widget {
+        right:
+            max(
+                12px,
+                env(safe-area-inset-right)
+            );
+
+        bottom:
+            max(
+                14px,
+                env(safe-area-inset-bottom)
+            );
+    }
+
+    .horseshoe-launcher {
+        min-width: 154px;
+        min-height: 54px;
+
+        padding: 10px 17px;
+
+        font-size: 14px;
+    }
+
+    .horseshoe-widget[data-widget-state="open"] {
+        inset: 0;
+
+        width: 100vw;
+        height: 100dvh;
+
+        padding: 0;
+
+        background:
+            rgba(4, 5, 6, 0.52);
+
+        pointer-events: auto;
+    }
+
+    .horseshoe-widget[data-widget-state="open"]
+    .horseshoe-panel {
+        position: absolute;
+        inset: 0;
+
+        width: 100vw;
+        height: 100dvh;
+
+        max-width: none;
+        max-height: none;
+
+        border: 0;
+        border-radius: 0;
+
+        transform-origin: center;
+    }
+
+    .horseshoe-header {
+        padding-top:
+            max(
+                14px,
+                env(safe-area-inset-top)
+            );
+    }
+
+    .horseshoe-footer {
+        padding-bottom:
+            max(
+                9px,
+                env(safe-area-inset-bottom)
+            );
+    }
+
+    .horseshoe-header__controls {
+        gap: 2px;
+    }
+
+    .horseshoe-control-button {
+        width: 30px;
+        height: 30px;
+    }
+
+    .horseshoe-message__bubble {
+        max-width: 91%;
+    }
+}
+
+/* ==========================================================
+SECTION 15 - SMALL MOBILE
+========================================================== */
+
+@media (max-width: 390px) {
+    .horseshoe-header {
+        padding-left: 11px;
+        padding-right: 8px;
+    }
+
+    .horseshoe-header__mark {
+        width: 36px;
+        height: 36px;
+
+        border-radius: 12px;
+    }
+
+    .horseshoe-header__title {
+        font-size: 13px;
+    }
+
+    .horseshoe-control-button {
+        width: 28px;
+        height: 28px;
+
+        font-size: 13px;
+    }
+
+    .horseshoe-conversation {
+        padding-left: 11px;
+        padding-right: 11px;
+    }
+
+    .horseshoe-composer {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .horseshoe-footer span:last-child {
+        display: none;
+    }
+}
+
+/* ==========================================================
+SECTION 16 - REDUCED MOTION
+========================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+    .horseshoe-launcher,
+    .horseshoe-typing span,
+    .horseshoe-composer__send.is-loading span {
+        animation: none !important;
+    }
+
+    .horseshoe-panel,
+    .horseshoe-launcher,
+    .horseshoe-control-button,
+    .horseshoe-message-action,
+    .horseshoe-quick-action,
+    .horseshoe-composer__send {
+        transition-duration: 0.01ms !important;
+    }
+
+    .horseshoe-message {
+        animation: none !important;
+    }
+}
+
+/* ==========================================================
+SECTION 17 - HIGH CONTRAST
+========================================================== */
+
+@media (prefers-contrast: more) {
+    .horseshoe-panel,
+    .horseshoe-launcher,
+    .horseshoe-composer__input,
+    .horseshoe-message__bubble {
+        border-width: 2px;
+    }
+
+    .horseshoe-header__status,
+    .horseshoe-message__metadata,
+    .horseshoe-footer {
+        color: white;
+    }
+}

@@ -1,0 +1,124 @@
+﻿# ============================================================
+# Exact file location: requirements.txt
+# Horseshoe Tavern AI
+# Phase 1 Part 1.2
+#
+# Foundation dependencies for:
+# - FastAPI application
+# - Configuration
+# - Database persistence
+# - Chat and lead schemas
+# - Templates
+# - HTTP services
+# - Input normalization
+# - Fuzzy spelling support
+# - Security
+# - Logging
+# - Testing
+#
+# Advanced ML and transformer packages will be introduced in a
+# later controlled phase after the foundation runs on Python 3.14.
+# ============================================================
+
+# ============================================================
+# SECTION 01 - WEB APPLICATION
+# ============================================================
+
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.34,<1.0
+gunicorn>=23,<24
+
+# ============================================================
+# SECTION 02 - CONFIGURATION AND VALIDATION
+# ============================================================
+
+pydantic>=2.10,<3.0
+pydantic-settings>=2.7,<3.0
+python-dotenv>=1.0,<2.0
+email-validator>=2.2,<3.0
+
+# ============================================================
+# SECTION 03 - DATABASE AND MIGRATIONS
+# ============================================================
+
+SQLAlchemy>=2.0,<3.0
+alembic>=1.14,<2.0
+psycopg[binary]>=3.2,<4.0
+aiosqlite>=0.20,<1.0
+
+# ============================================================
+# SECTION 04 - HTTP AND RESILIENCE
+# ============================================================
+
+httpx>=0.28,<1.0
+tenacity>=9.0,<10.0
+
+# ============================================================
+# SECTION 05 - TEMPLATES AND FORMS
+# ============================================================
+
+Jinja2>=3.1,<4.0
+python-multipart>=0.0.20,<1.0
+MarkupSafe>=3.0,<4.0
+
+# ============================================================
+# SECTION 06 - JSON AND SERIALIZATION
+# ============================================================
+
+orjson>=3.10,<4.0
+jsonschema>=4.23,<5.0
+PyYAML>=6.0,<7.0
+python-dateutil>=2.9,<3.0
+
+# ============================================================
+# SECTION 07 - TEXT NORMALIZATION AND FUZZY MATCHING
+# ============================================================
+
+rapidfuzz>=3.10,<4.0
+regex>=2024.11.6
+Unidecode>=1.3,<2.0
+ftfy>=6.3,<7.0
+pyspellchecker>=0.8,<1.0
+jellyfish>=1.1,<2.0
+
+# ============================================================
+# SECTION 08 - SECURITY
+# ============================================================
+
+argon2-cffi>=23.1,<26.0
+PyJWT[crypto]>=2.10,<3.0
+cryptography>=44,<48
+bleach>=6.2,<7.0
+
+# ============================================================
+# SECTION 09 - RATE LIMITING AND CACHING
+# ============================================================
+
+slowapi>=0.1.9,<1.0
+cachetools>=5.5,<7.0
+
+# ============================================================
+# SECTION 10 - LOGGING AND METRICS
+# ============================================================
+
+structlog>=24.4,<27.0
+prometheus-client>=0.21,<1.0
+rich>=13.9,<15.0
+
+# ============================================================
+# SECTION 11 - HTML AND SEO PROCESSING
+# ============================================================
+
+beautifulsoup4>=4.12,<5.0
+lxml>=5.3,<7.0
+
+# ============================================================
+# SECTION 12 - TESTING
+# ============================================================
+
+pytest>=8.3,<10.0
+pytest-asyncio>=0.25,<2.0
+pytest-cov>=6.0,<8.0
+pytest-mock>=3.14,<4.0
+respx>=0.22,<1.0
+Faker>=33,<40

@@ -1,0 +1,30 @@
+﻿{
+  "schema_version": "1.0.0",
+  "variants": [
+    {
+      "incorrect": "horshoe",
+      "correct": "horseshoe",
+      "approval_status": "seeded"
+    },
+    {
+      "incorrect": "tavrn",
+      "correct": "tavern",
+      "approval_status": "seeded"
+    },
+    {
+      "incorrect": "kitchn",
+      "correct": "kitchen",
+      "approval_status": "seeded"
+    },
+    {
+      "incorrect": "tonite",
+      "correct": "tonight",
+      "approval_status": "seeded"
+    },
+    {
+      "incorrect": "trivua",
+      "correct": "trivia",
+      "approval_status": "seeded"
+    }
+  ]
+}

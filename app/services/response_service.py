@@ -1,7 +1,7 @@
-﻿# ============================================================
+# ============================================================
 # Exact file location: app/services/response_service.py
 # Horseshoe Tavern AI
-# Phase 1 Part 1.19
+# Phase 1 Part 1.33
 # Grounded response composition, citations, actions, workflow
 # prompts, safe fallbacks, validation, and answer diagnostics
 # ============================================================
@@ -75,6 +75,13 @@ from app.services.knowledge_service import (
     KnowledgeTrustLevel,
 )
 
+from app.services.destination_routing import (
+    build_destination_actions,
+    build_destination_metadata,
+    destination_fallback_message,
+    match_destinations,
+)
+
 
 # ============================================================
 # SECTION 01 - LOGGER AND CONSTANTS
@@ -82,8 +89,8 @@ from app.services.knowledge_service import (
 
 logger = get_logger(__name__)
 
-RESPONSE_SERVICE_VERSION: Final[str] = "1.0.0"
-RESPONSE_SERVICE_PHASE: Final[str] = "Phase 1 Part 1.19"
+RESPONSE_SERVICE_VERSION: Final[str] = "1.1.0"
+RESPONSE_SERVICE_PHASE: Final[str] = "Phase 1 Part 1.33"
 
 MAXIMUM_RESPONSE_CHARACTERS: Final[int] = 12000
 MAXIMUM_SOURCE_COUNT: Final[int] = 12
@@ -290,6 +297,20 @@ class ResponseService:
             or datetime.now().astimezone()
         )
 
+        destination_metadata = (
+            build_destination_metadata(
+                nlu_result
+            )
+        )
+
+        effective_metadata = {
+            **dict(
+                response_metadata
+                or {}
+            ),
+            **destination_metadata,
+        }
+
         warnings: list[str] = list(
             knowledge_result.warnings
         )
@@ -316,7 +337,7 @@ class ResponseService:
                 knowledge_result=knowledge_result,
                 created_at=created_at,
                 warnings=warnings,
-                metadata=response_metadata,
+                metadata=effective_metadata,
             )
 
         if nlu_result.requires_clarification:
@@ -325,7 +346,7 @@ class ResponseService:
                 knowledge_result=knowledge_result,
                 created_at=created_at,
                 warnings=warnings,
-                metadata=response_metadata,
+                metadata=effective_metadata,
             )
 
         if (
@@ -338,7 +359,7 @@ class ResponseService:
                 knowledge_result=knowledge_result,
                 created_at=created_at,
                 warnings=warnings,
-                metadata=response_metadata,
+                metadata=effective_metadata,
             )
 
         if not knowledge_result.has_verified_knowledge:
@@ -347,7 +368,7 @@ class ResponseService:
                 knowledge_result=knowledge_result,
                 created_at=created_at,
                 warnings=warnings,
-                metadata=response_metadata,
+                metadata=effective_metadata,
             )
 
         return self._compose_grounded_response(
@@ -355,7 +376,7 @@ class ResponseService:
             knowledge_result=knowledge_result,
             created_at=created_at,
             warnings=warnings,
-            metadata=response_metadata,
+            metadata=effective_metadata,
         )
 
     # ========================================================
@@ -1028,6 +1049,13 @@ class ResponseService:
     ) -> tuple[ResponseAction, ...]:
         actions: list[ResponseAction] = []
 
+        actions.extend(
+            build_destination_actions(
+                nlu_result,
+                maximum_results=4,
+            )
+        )
+
         for record in knowledge_result.records:
             data = record.structured_data
 
@@ -1162,6 +1190,13 @@ class ResponseService:
     ) -> tuple[ResponseAction, ...]:
         actions: list[ResponseAction] = []
 
+        actions.extend(
+            build_destination_actions(
+                nlu_result,
+                maximum_results=4,
+            )
+        )
+
         if (
             nlu_result.active_flow
             == ActiveFlow.PRIVATE_EVENT.value
@@ -1208,6 +1243,13 @@ class ResponseService:
         nlu_result: NLUResult,
     ) -> tuple[ResponseAction, ...]:
         actions: list[ResponseAction] = []
+
+        actions.extend(
+            build_destination_actions(
+                nlu_result,
+                maximum_results=4,
+            )
+        )
 
         if (
             nlu_result.primary_intent
@@ -1647,6 +1689,15 @@ class ResponseService:
         self,
         nlu_result: NLUResult,
     ) -> str:
+        routed_message = (
+            destination_fallback_message(
+                nlu_result
+            )
+        )
+
+        if routed_message:
+            return routed_message
+
         intent = nlu_result.primary_intent
 
         if intent in {
@@ -1909,6 +1960,13 @@ class ResponseService:
             "unsupported_claim_count": (
                 knowledge_result
                 .unsupported_claim_count
+            ),
+            "destination_routing_available": True,
+            "destination_match_count": len(
+                match_destinations(
+                    nlu_result,
+                    maximum_results=4,
+                )
             ),
         }
 

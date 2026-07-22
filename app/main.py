@@ -1,1073 +1,2370 @@
 ﻿# ============================================================
-# Exact file location: app/main.py
+# Exact file location: app/services/chat_service.py
 # Horseshoe Tavern AI
-# Phase 1 Part 1.22
-# FastAPI application factory, middleware, routers, static widget,
-# startup lifecycle, health, metadata, and Render entrypoint
+# Phase 1 Part 1.37
+# End-to-end chat orchestration, persistence, restoration,
+# widget state, analytics, grounded responses, and transactions
 # ============================================================
 
 """
-FastAPI application entrypoint for Horseshoe Tavern AI.
+End-to-end application service for Horseshoe Tavern AI.
 
-Responsibilities:
+This service coordinates:
 
-- Create the FastAPI application
-- Register the chat and widget routers
-- Mount static widget assets
-- Configure CORS
-- Configure trusted hosts
-- Add request-correlation middleware
-- Add security and no-cache response headers
-- Add safe exception handlers
-- Initialize database tables on startup when configured
-- Expose root, application health, readiness, and metadata endpoints
-- Provide a stable `app` object for Uvicorn and Render
+- Browser session creation and restoration
+- Conversation creation and restoration
+- User-message persistence
+- NLU processing
+- Verified knowledge retrieval
+- Grounded response generation
+- Assistant-message persistence
+- Conversation-context persistence
+- Widget-state persistence
+- Analytics-event recording
+- Private-event draft persistence
+- Safe transaction boundaries
+- Failure capture and rollback
+- Structured ChatResponse creation
+
+The service intentionally separates:
+
+- public user input
+- verified business knowledge
+- generated response content
+- controlled review and learning data
+
+Public messages never become verified business facts automatically.
 """
 
 from __future__ import annotations
 
-import os
+import copy
+import hashlib
+import json
 import time
 import uuid
-from contextlib import asynccontextmanager
-from datetime import datetime
-from pathlib import Path
-from typing import Any, AsyncIterator, Final
+from dataclasses import dataclass, field
+from datetime import date, datetime, time as clock_time
+from decimal import Decimal
+from enum import Enum
+from typing import Any, Final, Mapping, Sequence
 
-from fastapi import FastAPI, HTTPException, Request, Response, status
-from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
-from starlette.middleware.trustedhost import TrustedHostMiddleware
+from sqlalchemy.orm import Session
 
-from app.api.chat_routes import (
-    CHAT_API_PHASE,
-    CHAT_API_VERSION,
-    router as chat_router,
+from app.database.models import (
+    ConversationStatus,
+    MessageRole,
+    MessageStatus,
+    WidgetSizeValue,
+    WidgetStateValue,
 )
-from app.api.widget_routes import router as widget_router
-from app.config import get_settings
-from app.database.base import Base
-from app.database.session import (
-    create_all_tables,
-    dispose_database_engine,
-    get_engine,
+from app.database.repositories import (
+    AnalyticsRepository,
+    BrowserSessionRepository,
+    ConversationRepository,
+    MessageRepository,
+    PrivateEventRepository,
+    WidgetStateRepository,
 )
 from app.logging_config import get_logger
-
-
-# ============================================================
-# SECTION 01 - CONSTANTS
-# ============================================================
-
-APPLICATION_VERSION: Final[str] = "1.0.0"
-APPLICATION_PHASE: Final[str] = "Phase 1 Part 1.22"
-APPLICATION_NAME: Final[str] = "Horseshoe Tavern AI"
-APPLICATION_DESCRIPTION: Final[str] = (
-    "Embeddable AI concierge for Horseshoe Tavern."
+from app.nlu.context import ConversationContext
+from app.nlu.orchestrator import (
+    NLUResult,
+    process_message,
+)
+from app.schemas.chat import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    ConfidenceBreakdown,
+    ConversationRestoreResponse,
+    PageContext,
+    PrivateEventDraft,
+    ResponseAction,
+    ResponseSource,
+    ResponseValidation,
+    WidgetContext,
+    WidgetSize,
+    WidgetState,
+)
+from app.services.knowledge_service import (
+    KnowledgeResult,
+    KnowledgeService,
+)
+from app.services.response_service import (
+    GroundedResponse,
+    ResponseService,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-APP_DIRECTORY = Path(__file__).resolve().parent
-STATIC_DIRECTORY = APP_DIRECTORY / "static"
-WIDGET_DIRECTORY = STATIC_DIRECTORY / "widget"
 
-settings = get_settings()
+# ============================================================
+# SECTION 01 - LOGGER AND CONSTANTS
+# ============================================================
+
 logger = get_logger(__name__)
 
+CHAT_SERVICE_VERSION: Final[str] = "1.1.0"
+CHAT_SERVICE_PHASE: Final[str] = "Phase 1 Part 1.37"
 
-# ============================================================
-# SECTION 02 - SETTINGS HELPERS
-# ============================================================
+DEFAULT_BUSINESS_SLUG: Final[str] = "horseshoe-tavern"
+DEFAULT_RESTORE_LIMIT: Final[int] = 100
+MAXIMUM_RESTORE_LIMIT: Final[int] = 200
 
-def _setting(
-    name: str,
-    default: Any,
-) -> Any:
-    return getattr(
-        settings,
-        name,
-        default,
-    )
+SESSION_ID_PREFIX: Final[str] = "session"
+CONVERSATION_ID_PREFIX: Final[str] = "conversation"
+MESSAGE_ID_PREFIX: Final[str] = "message"
+REQUEST_ID_PREFIX: Final[str] = "request"
 
-
-def _environment() -> str:
-    return str(
-        _setting(
-            "environment",
-            os.getenv("ENVIRONMENT", "development"),
-        )
-    ).strip().lower()
-
-
-def _debug_enabled() -> bool:
-    configured = _setting(
-        "debug",
-        None,
-    )
-
-    if configured is not None:
-        return bool(configured)
-
-    return _environment() not in {
-        "production",
-        "prod",
-    }
-
-
-def _allowed_origins() -> list[str]:
-    configured = _setting(
-        "cors_allowed_origins",
-        None,
-    )
-
-    if isinstance(configured, str):
-        values = [
-            value.strip()
-            for value in configured.split(",")
-            if value.strip()
-        ]
-    elif isinstance(
-        configured,
-        (list, tuple, set),
-    ):
-        values = [
-            str(value).strip()
-            for value in configured
-            if str(value).strip()
-        ]
-    else:
-        values = []
-
-    if values:
-        return values
-
-    if _environment() in {
-        "production",
-        "prod",
-    }:
-        return [
-            "https://www.thehorseshoetavern.com",
-            "https://thehorseshoetavern.com",
-        ]
-
-    return [
-        "http://localhost",
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:8000",
-        "https://www.thehorseshoetavern.com",
-        "https://thehorseshoetavern.com",
-    ]
-
-
-def _allowed_hosts() -> list[str]:
-    configured = _setting(
-        "allowed_hosts",
-        None,
-    )
-
-    if isinstance(configured, str):
-        values = [
-            value.strip()
-            for value in configured.split(",")
-            if value.strip()
-        ]
-    elif isinstance(
-        configured,
-        (list, tuple, set),
-    ):
-        values = [
-            str(value).strip()
-            for value in configured
-            if str(value).strip()
-        ]
-    else:
-        values = []
-
-    if values:
-        return values
-
-    return [
-        "*",
-    ]
-
-
-def _initialize_database_enabled() -> bool:
-    return bool(
-        _setting(
-            "initialize_database_on_startup",
-            True,
-        )
-    )
+PII_REDACTION_TOKEN: Final[str] = "[REDACTED]"
 
 
 # ============================================================
-# SECTION 03 - DATABASE HEALTH
+# SECTION 02 - ENUMERATIONS
 # ============================================================
 
-def _check_database() -> tuple[bool, str | None]:
-    try:
-        with get_engine().connect() as connection:
-            connection.execute(
-                text("SELECT 1")
-            )
-
-        return True, None
-
-    except Exception as exc:
-        logger.exception(
-            "Database health check failed."
-        )
-
-        return False, type(exc).__name__
+class ChatServiceDecision(str, Enum):
+    COMPLETED = "completed"
+    RESTORED = "restored"
+    PARTIAL = "partial"
+    FAILED = "failed"
 
 
-def _initialize_database() -> None:
-    if not _initialize_database_enabled():
-        logger.info(
-            "Database initialization on startup is disabled."
-        )
-        return
-
-    logger.info(
-        "Initializing database metadata."
-    )
-
-    create_all_tables()
-
-    logger.info(
-        "Database metadata initialization completed."
-    )
+class PersistenceMode(str, Enum):
+    DATABASE = "database"
+    TEMPORARY_MEMORY = "temporary_memory"
+    BROWSER_ONLY = "browser_only"
 
 
 # ============================================================
-# SECTION 04 - LIFESPAN
+# SECTION 03 - DATA CLASSES
 # ============================================================
 
-@asynccontextmanager
-async def lifespan(
-    application: FastAPI,
-) -> AsyncIterator[None]:
-    startup_started = time.perf_counter()
+@dataclass(frozen=True, slots=True)
+class ChatProcessingResult:
+    response: ChatResponse
+    nlu_result: NLUResult
+    knowledge_result: KnowledgeResult
+    grounded_response: GroundedResponse
+    decision: ChatServiceDecision
+    persisted: bool
+    processing_time_ms: float
+    warnings: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    logger.info(
-        "%s startup beginning version=%s phase=%s environment=%s",
-        APPLICATION_NAME,
-        APPLICATION_VERSION,
-        APPLICATION_PHASE,
-        _environment(),
-    )
-
-    application.state.started_at = (
-        datetime.now().astimezone()
-    )
-
-    application.state.startup_complete = False
-    application.state.database_initialized = False
-    application.state.database_available = False
-    application.state.startup_error = None
-
-    try:
-        _initialize_database()
-
-        application.state.database_initialized = True
-
-        database_available, database_error = (
-            _check_database()
-        )
-
-        application.state.database_available = (
-            database_available
-        )
-
-        application.state.database_error = (
-            database_error
-        )
-
-        application.state.startup_complete = True
-
-        elapsed_ms = round(
-            (
-                time.perf_counter()
-                - startup_started
-            )
-            * 1000.0,
-            3,
-        )
-
-        logger.info(
-            (
-                "%s startup completed "
-                "database_available=%s startup_ms=%s"
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "response": self.response.model_dump(
+                mode="json"
             ),
-            APPLICATION_NAME,
-            database_available,
-            elapsed_ms,
-        )
+            "nlu_result": self.nlu_result.as_dict(
+                include_diagnostics=False
+            ),
+            "knowledge_result": (
+                self.knowledge_result.as_dict()
+            ),
+            "grounded_response": (
+                self.grounded_response.as_dict()
+            ),
+            "decision": self.decision.value,
+            "persisted": self.persisted,
+            "processing_time_ms": (
+                self.processing_time_ms
+            ),
+            "warnings": list(self.warnings),
+            "metadata": copy.deepcopy(
+                self.metadata
+            ),
+        }
 
-    except Exception as exc:
-        application.state.startup_error = (
-            type(exc).__name__
-        )
 
-        logger.exception(
-            "%s startup failed.",
-            APPLICATION_NAME,
-        )
+@dataclass(frozen=True, slots=True)
+class RestoreResult:
+    response: ConversationRestoreResponse
+    decision: ChatServiceDecision
+    persistence_mode: PersistenceMode
+    warnings: tuple[str, ...] = ()
 
-        if _environment() in {
-            "production",
-            "prod",
-        }:
-            raise
-
-    yield
-
-    logger.info(
-        "%s shutdown beginning.",
-        APPLICATION_NAME,
-    )
-
-    try:
-        dispose_database_engine()
-    except Exception:
-        logger.exception(
-            "Database engine disposal failed."
-        )
-
-    logger.info(
-        "%s shutdown completed.",
-        APPLICATION_NAME,
-    )
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "response": self.response.model_dump(
+                mode="json"
+            ),
+            "decision": self.decision.value,
+            "persistence_mode": (
+                self.persistence_mode.value
+            ),
+            "warnings": list(self.warnings),
+        }
 
 
 # ============================================================
-# SECTION 05 - APPLICATION FACTORY
+# SECTION 04 - CHAT SERVICE
 # ============================================================
 
-def create_application() -> FastAPI:
-    application = FastAPI(
-        title=APPLICATION_NAME,
-        description=APPLICATION_DESCRIPTION,
-        version=APPLICATION_VERSION,
-        debug=_debug_enabled(),
-        lifespan=lifespan,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
-    )
+class ChatService:
+    """
+    End-to-end transactional chat application service.
+    """
 
-    application.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=_allowed_hosts(),
-    )
+    def __init__(
+        self,
+        session: Session,
+        *,
+        business_slug: str = DEFAULT_BUSINESS_SLUG,
+        response_service: ResponseService | None = None,
+    ) -> None:
+        self.session = session
+        self.business_slug = (
+            business_slug.strip()
+            or DEFAULT_BUSINESS_SLUG
+        )
 
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=_allowed_origins(),
-        allow_credentials=True,
-        allow_methods=[
-            "GET",
-            "POST",
-            "PUT",
-            "PATCH",
-            "DELETE",
-            "OPTIONS",
-        ],
-        allow_headers=[
-            "Accept",
-            "Authorization",
-            "Content-Type",
-            "Origin",
-            "User-Agent",
-            "X-Requested-With",
-            "X-Request-ID",
-            "X-Horseshoe-Widget-Version",
-        ],
-        expose_headers=[
-            "X-Request-ID",
-            "X-Horseshoe-App-Version",
-            "X-Horseshoe-Chat-API-Version",
-            "X-Chat-Processing-Time-MS",
-            "X-Conversation-ID",
-            "X-Conversation-Restored",
-            "X-Persistence-Mode",
-        ],
-        max_age=600,
-    )
+        self.browser_sessions = (
+            BrowserSessionRepository(session)
+        )
 
-    _register_middleware(
-        application
-    )
+        self.conversations = (
+            ConversationRepository(session)
+        )
 
-    _register_exception_handlers(
-        application
-    )
+        self.messages = (
+            MessageRepository(session)
+        )
 
-    application.include_router(
-        chat_router
-    )
+        self.widget_states = (
+            WidgetStateRepository(session)
+        )
 
-    application.include_router(
-        widget_router
-    )
+        self.analytics = (
+            AnalyticsRepository(session)
+        )
 
-    if STATIC_DIRECTORY.exists():
-        application.mount(
-            "/static",
-            StaticFiles(
-                directory=str(
-                    STATIC_DIRECTORY
+        self.private_events = (
+            PrivateEventRepository(session)
+        )
+
+        self.knowledge_service = (
+            KnowledgeService(session)
+        )
+
+        self.response_service = (
+            response_service
+            or ResponseService()
+        )
+
+    # ========================================================
+    # SECTION 05 - PROCESS CHAT MESSAGE
+    # ========================================================
+
+    def process(
+        self,
+        request: ChatRequest,
+        *,
+        now: datetime | None = None,
+    ) -> ChatProcessingResult:
+        started_at = time.perf_counter()
+        reference = (
+            now
+            or datetime.now().astimezone()
+        )
+
+        request_id = self._new_id(
+            REQUEST_ID_PREFIX
+        )
+
+        warnings: list[str] = []
+
+        browser_session = None
+        conversation = None
+        user_message = None
+        assistant_message = None
+
+        try:
+            browser_session = (
+                self._resolve_browser_session(
+                    request,
+                    reference,
+                )
+            )
+
+            conversation = (
+                self._resolve_conversation(
+                    request,
+                    browser_session,
+                    reference,
+                )
+            )
+
+            previous_context = (
+                self._load_conversation_context(
+                    conversation
+                )
+            )
+
+            user_message = (
+                self._persist_user_message(
+                    request=request,
+                    conversation=conversation,
+                    reference=reference,
+                )
+            )
+
+            nlu_result = process_message(
+                request.message,
+                previous_context=previous_context,
+                conversation_id=(
+                    conversation.id
+                ),
+                session_id=(
+                    browser_session.id
+                ),
+                page_category=(
+                    request.page_context.category
+                ),
+                page_url=(
+                    request.page_context.url
+                ),
+                page_context={
+                    **request.page_context.model_dump(
+                        mode="json"
+                    ),
+                    "business_name": (
+                        "Horseshoe Tavern"
+                    ),
+                },
+                reference_datetime=reference,
+                metadata={
+                    "request_id": request_id,
+                    "client_message_id": (
+                        request.client_message_id
+                    ),
+                    "business_slug": (
+                        request.business_slug
+                    ),
+                },
+            )
+
+            knowledge_result = (
+                self.knowledge_service.retrieve(
+                    nlu_result,
+                    business_slug=(
+                        request.business_slug
+                    ),
+                    now=reference,
+                )
+            )
+
+            grounded_response = (
+                self.response_service.compose(
+                    nlu_result,
+                    knowledge_result,
+                    now=reference,
+                    response_metadata={
+                        "request_id": request_id,
+                        "session_id": (
+                            browser_session.id
+                        ),
+                        "conversation_id": (
+                            conversation.id
+                        ),
+                    },
+                )
+            )
+
+            assistant_message = (
+                self._persist_assistant_message(
+                    conversation=conversation,
+                    grounded_response=(
+                        grounded_response
+                    ),
+                    nlu_result=nlu_result,
+                    knowledge_result=(
+                        knowledge_result
+                    ),
+                    reference=reference,
+                )
+            )
+
+            self._persist_context(
+                conversation=conversation,
+                nlu_result=nlu_result,
+                reference=reference,
+            )
+
+            self._persist_widget_state(
+                request=request,
+                browser_session=browser_session,
+                conversation=conversation,
+                grounded_response=(
+                    grounded_response
+                ),
+                reference=reference,
+            )
+
+            self._persist_private_event_draft(
+                request=request,
+                browser_session=browser_session,
+                conversation=conversation,
+                grounded_response=(
+                    grounded_response
+                ),
+                reference=reference,
+            )
+
+            self._record_chat_analytics(
+                request=request,
+                browser_session=browser_session,
+                conversation=conversation,
+                user_message=user_message,
+                assistant_message=assistant_message,
+                nlu_result=nlu_result,
+                knowledge_result=(
+                    knowledge_result
+                ),
+                grounded_response=(
+                    grounded_response
+                ),
+                request_id=request_id,
+                reference=reference,
+            )
+
+            self._update_conversation_summary(
+                conversation=conversation,
+                nlu_result=nlu_result,
+                grounded_response=(
+                    grounded_response
+                ),
+                reference=reference,
+            )
+
+            self.session.commit()
+
+            processing_time_ms = round(
+                (
+                    time.perf_counter()
+                    - started_at
+                )
+                * 1000.0,
+                3,
+            )
+
+            response = self._build_chat_response(
+                request_id=request_id,
+                request=request,
+                browser_session=browser_session,
+                conversation=conversation,
+                assistant_message=assistant_message,
+                nlu_result=nlu_result,
+                grounded_response=(
+                    grounded_response
+                ),
+                processing_time_ms=(
+                    processing_time_ms
+                ),
+                reference=reference,
+            )
+
+            return ChatProcessingResult(
+                response=response,
+                nlu_result=nlu_result,
+                knowledge_result=knowledge_result,
+                grounded_response=(
+                    grounded_response
+                ),
+                decision=(
+                    ChatServiceDecision.COMPLETED
+                ),
+                persisted=True,
+                processing_time_ms=(
+                    processing_time_ms
+                ),
+                warnings=tuple(warnings),
+                metadata={
+                    "request_id": request_id,
+                    "browser_session_id": (
+                        browser_session.id
+                    ),
+                    "conversation_id": (
+                        conversation.id
+                    ),
+                    "user_message_id": (
+                        user_message.id
+                    ),
+                    "assistant_message_id": (
+                        assistant_message.id
+                    ),
+                    "destination_routing": (
+                        self._destination_routing_metadata(
+                            grounded_response
+                        )
+                    ),
+                    "restaurant_schema": (
+                        self._restaurant_schema_metadata(
+                            grounded_response
+                        )
+                    ),
+                },
+            )
+
+        except Exception as exc:
+            self.session.rollback()
+
+            logger.exception(
+                "Chat processing failed for request %s",
+                request_id,
+            )
+
+            processing_time_ms = round(
+                (
+                    time.perf_counter()
+                    - started_at
+                )
+                * 1000.0,
+                3,
+            )
+
+            raise RuntimeError(
+                "Chat processing failed."
+            ) from exc
+
+    # ========================================================
+    # SECTION 06 - RESTORE CONVERSATION
+    # ========================================================
+
+    def restore(
+        self,
+        *,
+        session_id: str,
+        conversation_id: str | None = None,
+        page_context: PageContext | None = None,
+        limit: int = DEFAULT_RESTORE_LIMIT,
+        now: datetime | None = None,
+    ) -> RestoreResult:
+        reference = (
+            now
+            or datetime.now().astimezone()
+        )
+
+        limit = min(
+            max(int(limit), 1),
+            MAXIMUM_RESTORE_LIMIT,
+        )
+
+        warnings: list[str] = []
+
+        browser_session = (
+            self.browser_sessions.get_by_id(
+                session_id
+            )
+        )
+
+        if browser_session is None:
+            response = ConversationRestoreResponse(
+                session_id=session_id,
+                conversation_id=(
+                    conversation_id
+                    or self._new_id(
+                        CONVERSATION_ID_PREFIX
+                    )
+                ),
+                restored=False,
+                messages=[],
+                widget_state=(
+                    WidgetState.COLLAPSED
+                ),
+                widget_size=(
+                    WidgetSize.COMPACT
+                ),
+                unread_count=0,
+                private_event_draft=None,
+                current_intent=None,
+                conversation_status="new",
+                server_time=reference,
+                persistence=(
+                    PersistenceMode.DATABASE.value
+                ),
+            )
+
+            warnings.append(
+                "Browser session was not found."
+            )
+
+            return RestoreResult(
+                response=response,
+                decision=(
+                    ChatServiceDecision.PARTIAL
+                ),
+                persistence_mode=(
+                    PersistenceMode.DATABASE
+                ),
+                warnings=tuple(warnings),
+            )
+
+        conversation = None
+
+        if conversation_id:
+            conversation = (
+                self.conversations.get_by_id(
+                    conversation_id
+                )
+            )
+
+        if conversation is None:
+            conversation = (
+                self.conversations
+                .get_latest_for_session(
+                    browser_session.id
+                )
+            )
+
+        if conversation is None:
+            response = ConversationRestoreResponse(
+                session_id=browser_session.id,
+                conversation_id=(
+                    conversation_id
+                    or self._new_id(
+                        CONVERSATION_ID_PREFIX
+                    )
+                ),
+                restored=False,
+                messages=[],
+                widget_state=(
+                    WidgetState.COLLAPSED
+                ),
+                widget_size=(
+                    WidgetSize.COMPACT
+                ),
+                unread_count=0,
+                private_event_draft=None,
+                current_intent=None,
+                conversation_status="new",
+                server_time=reference,
+                persistence=(
+                    PersistenceMode.DATABASE.value
+                ),
+            )
+
+            return RestoreResult(
+                response=response,
+                decision=(
+                    ChatServiceDecision.PARTIAL
+                ),
+                persistence_mode=(
+                    PersistenceMode.DATABASE
+                ),
+                warnings=(),
+            )
+
+        messages = (
+            self.messages.list_for_conversation(
+                conversation.id,
+                limit=limit,
+            )
+        )
+
+        restored_messages = [
+            self._message_to_schema(
+                message
+            )
+            for message in messages
+        ]
+
+        widget_state_record = (
+            self.widget_states.get_for_session(
+                browser_session.id
+            )
+        )
+
+        private_event_draft = (
+            self._restore_private_event_draft(
+                conversation.id
+            )
+        )
+
+        widget_state = (
+            self._coerce_widget_state(
+                getattr(
+                    widget_state_record,
+                    "state",
+                    None,
+                )
+            )
+        )
+
+        widget_size = (
+            self._coerce_widget_size(
+                getattr(
+                    widget_state_record,
+                    "size",
+                    None,
+                )
+            )
+        )
+
+        unread_count = int(
+            getattr(
+                widget_state_record,
+                "unread_count",
+                0,
+            )
+            or 0
+        )
+
+        response = ConversationRestoreResponse(
+            session_id=browser_session.id,
+            conversation_id=conversation.id,
+            restored=True,
+            messages=restored_messages,
+            widget_state=widget_state,
+            widget_size=widget_size,
+            unread_count=unread_count,
+            private_event_draft=(
+                private_event_draft
+            ),
+            current_intent=getattr(
+                conversation,
+                "current_intent",
+                None,
+            ),
+            conversation_status=str(
+                getattr(
+                    conversation,
+                    "status",
+                    "active",
                 )
             ),
-            name="static",
-        )
-    else:
-        logger.warning(
-            "Static directory does not exist: %s",
-            STATIC_DIRECTORY,
+            server_time=reference,
+            persistence=(
+                PersistenceMode.DATABASE.value
+            ),
         )
 
-    _register_application_routes(
-        application
-    )
+        return RestoreResult(
+            response=response,
+            decision=(
+                ChatServiceDecision.RESTORED
+            ),
+            persistence_mode=(
+                PersistenceMode.DATABASE
+            ),
+            warnings=tuple(warnings),
+        )
 
-    return application
+    # ========================================================
+    # SECTION 07 - SESSION RESOLUTION
+    # ========================================================
 
-
-# ============================================================
-# SECTION 06 - REQUEST MIDDLEWARE
-# ============================================================
-
-def _register_middleware(
-    application: FastAPI,
-) -> None:
-    @application.middleware("http")
-    async def request_context_middleware(
-        request: Request,
-        call_next: Any,
-    ) -> Response:
-        started_at = time.perf_counter()
-
-        supplied_request_id = (
-            request.headers.get(
-                "X-Request-ID"
+    def _resolve_browser_session(
+        self,
+        request: ChatRequest,
+        reference: datetime,
+    ) -> Any:
+        browser_session = (
+            self.browser_sessions.get_by_id(
+                request.session_id
             )
         )
 
-        request_id = (
-            supplied_request_id.strip()
-            if supplied_request_id
-            and supplied_request_id.strip()
-            else f"request_{uuid.uuid4().hex}"
+        if browser_session is None:
+            browser_session = (
+                self.browser_sessions.create(
+                    session_id=request.session_id,
+                    business_slug=(
+                        request.business_slug
+                    ),
+                    first_page_url=(
+                        request.page_context.url
+                    ),
+                    first_page_category=(
+                        request.page_context.category
+                    ),
+                    user_agent=(
+                        request.metadata.get(
+                            "user_agent"
+                        )
+                    ),
+                    language=(
+                        request.page_context.language
+                    ),
+                    metadata_json={
+                        "widget_version": (
+                            request.widget_context.version
+                        ),
+                        "initial_page": (
+                            request.page_context.model_dump(
+                                mode="json"
+                            )
+                        ),
+                    },
+                )
+            )
+
+        if hasattr(
+            browser_session,
+            "touch",
+        ):
+            browser_session.touch(
+                page_url=(
+                    request.page_context.url
+                ),
+                page_category=(
+                    request.page_context.category
+                ),
+                observed_at=reference,
+            )
+        else:
+            if hasattr(
+                browser_session,
+                "last_seen_at",
+            ):
+                browser_session.last_seen_at = (
+                    reference
+                )
+
+            if hasattr(
+                browser_session,
+                "last_page_url",
+            ):
+                browser_session.last_page_url = (
+                    request.page_context.url
+                )
+
+            if hasattr(
+                browser_session,
+                "last_page_category",
+            ):
+                browser_session.last_page_category = (
+                    request.page_context.category
+                )
+
+        return browser_session
+
+    # ========================================================
+    # SECTION 08 - CONVERSATION RESOLUTION
+    # ========================================================
+
+    def _resolve_conversation(
+        self,
+        request: ChatRequest,
+        browser_session: Any,
+        reference: datetime,
+    ) -> Any:
+        conversation = None
+
+        if request.conversation_id:
+            conversation = (
+                self.conversations.get_by_id(
+                    request.conversation_id
+                )
+            )
+
+        if conversation is None:
+            conversation = (
+                self.conversations
+                .get_latest_for_session(
+                    browser_session.id
+                )
+            )
+
+        if conversation is None:
+            conversation_id = (
+                request.conversation_id
+                or self._new_id(
+                    CONVERSATION_ID_PREFIX
+                )
+            )
+
+            conversation = (
+                self.conversations.create(
+                    conversation_id=(
+                        conversation_id
+                    ),
+                    browser_session_id=(
+                        browser_session.id
+                    ),
+                    business_slug=(
+                        request.business_slug
+                    ),
+                    status=(
+                        ConversationStatus.ACTIVE.value
+                    ),
+                    started_at=reference,
+                    metadata_json={
+                        "page_context": (
+                            request.page_context.model_dump(
+                                mode="json"
+                            )
+                        )
+                    },
+                )
+            )
+
+        if hasattr(
+            conversation,
+            "last_activity_at",
+        ):
+            conversation.last_activity_at = (
+                reference
+            )
+
+        if hasattr(
+            conversation,
+            "status",
+        ):
+            conversation.status = (
+                ConversationStatus.ACTIVE.value
+            )
+
+        return conversation
+
+    # ========================================================
+    # SECTION 09 - USER MESSAGE PERSISTENCE
+    # ========================================================
+
+    def _persist_user_message(
+        self,
+        *,
+        request: ChatRequest,
+        conversation: Any,
+        reference: datetime,
+    ) -> Any:
+        return self.messages.create(
+            message_id=(
+                request.client_message_id
+                or self._new_id(
+                    MESSAGE_ID_PREFIX
+                )
+            ),
+            conversation_id=(
+                conversation.id
+            ),
+            role=MessageRole.USER.value,
+            status=(
+                MessageStatus.COMPLETED.value
+            ),
+            text=request.message,
+            original_text=request.message,
+            normalized_text=None,
+            corrected_text=None,
+            page_url=(
+                request.page_context.url
+            ),
+            page_category=(
+                request.page_context.category
+            ),
+            created_at=reference,
+            metadata_json={
+                "client_timestamp": (
+                    request.client_timestamp.isoformat()
+                    if request.client_timestamp
+                    else None
+                ),
+                "page_context": (
+                    request.page_context.model_dump(
+                        mode="json"
+                    )
+                ),
+                "widget_context": (
+                    request.widget_context.model_dump(
+                        mode="json"
+                    )
+                ),
+                "request_metadata": (
+                    copy.deepcopy(
+                        request.metadata
+                    )
+                ),
+            },
         )
 
-        request.state.request_id = (
-            request_id
+    # ========================================================
+    # SECTION 10 - ASSISTANT MESSAGE PERSISTENCE
+    # ========================================================
+
+    def _persist_assistant_message(
+        self,
+        *,
+        conversation: Any,
+        grounded_response: GroundedResponse,
+        nlu_result: NLUResult,
+        knowledge_result: KnowledgeResult,
+        reference: datetime,
+    ) -> Any:
+        return self.messages.create(
+            message_id=self._new_id(
+                MESSAGE_ID_PREFIX
+            ),
+            conversation_id=(
+                conversation.id
+            ),
+            role=MessageRole.ASSISTANT.value,
+            status=(
+                MessageStatus.COMPLETED.value
+            ),
+            text=grounded_response.message,
+            original_text=None,
+            normalized_text=(
+                nlu_result.normalized_text
+            ),
+            corrected_text=(
+                nlu_result.corrected_text
+            ),
+            detected_intent=(
+                nlu_result.primary_intent.value
+            ),
+            intent_confidence=(
+                nlu_result.confidence.intent
+            ),
+            answer_confidence=(
+                grounded_response
+                .confidence
+                .overall
+            ),
+            sources_json=[
+                source.model_dump(
+                    mode="json"
+                )
+                for source
+                in grounded_response.sources
+            ],
+            actions_json=[
+                action.model_dump(
+                    mode="json"
+                )
+                for action
+                in grounded_response.actions
+            ],
+            validation_json=(
+                grounded_response
+                .validation
+                .model_dump(
+                    mode="json"
+                )
+            ),
+            created_at=reference,
+            metadata_json={
+                "nlu": nlu_result.as_dict(
+                    include_diagnostics=False
+                ),
+                "knowledge": (
+                    knowledge_result.as_dict()
+                ),
+                "response": (
+                    grounded_response.as_dict()
+                ),
+            },
+        )
+
+    # ========================================================
+    # SECTION 11 - CONTEXT PERSISTENCE
+    # ========================================================
+
+    def _persist_context(
+        self,
+        *,
+        conversation: Any,
+        nlu_result: NLUResult,
+        reference: datetime,
+    ) -> None:
+        context_payload = (
+            nlu_result.context.as_dict()
+        )
+
+        if hasattr(
+            conversation,
+            "context_json",
+        ):
+            conversation.context_json = (
+                context_payload
+            )
+
+        if hasattr(
+            conversation,
+            "current_intent",
+        ):
+            conversation.current_intent = (
+                nlu_result
+                .context
+                .current_intent
+            )
+
+        if hasattr(
+            conversation,
+            "active_flow",
+        ):
+            conversation.active_flow = (
+                nlu_result
+                .context
+                .active_flow
+            )
+
+        if hasattr(
+            conversation,
+            "last_activity_at",
+        ):
+            conversation.last_activity_at = (
+                reference
+            )
+
+    # ========================================================
+    # SECTION 12 - WIDGET STATE PERSISTENCE
+    # ========================================================
+
+    def _persist_widget_state(
+        self,
+        *,
+        request: ChatRequest,
+        browser_session: Any,
+        conversation: Any,
+        grounded_response: GroundedResponse,
+        reference: datetime,
+    ) -> None:
+        self.widget_states.upsert(
+            browser_session_id=(
+                browser_session.id
+            ),
+            conversation_id=(
+                conversation.id
+            ),
+            state=self._widget_state_value(
+                grounded_response.widget_state
+            ),
+            size=self._widget_size_value(
+                grounded_response.widget_size
+            ),
+            unread_count=0,
+            draft_text=None,
+            current_page_url=(
+                request.page_context.url
+            ),
+            current_page_category=(
+                request.page_context.category
+            ),
+            private_event_draft=(
+                grounded_response
+                .private_event_draft
+                .model_dump(
+                    mode="json"
+                )
+                if grounded_response
+                .private_event_draft
+                else {}
+            ),
+            updated_at=reference,
+        )
+
+    # ========================================================
+    # SECTION 13 - PRIVATE EVENT DRAFT PERSISTENCE
+    # ========================================================
+
+    def _persist_private_event_draft(
+        self,
+        *,
+        request: ChatRequest,
+        browser_session: Any,
+        conversation: Any,
+        grounded_response: GroundedResponse,
+        reference: datetime,
+    ) -> None:
+        draft = (
+            grounded_response
+            .private_event_draft
+        )
+
+        if draft is None:
+            return
+
+        self.private_events.upsert_draft(
+            conversation_id=(
+                conversation.id
+            ),
+            browser_session_id=(
+                browser_session.id
+            ),
+            business_slug=(
+                request.business_slug
+            ),
+            event_type=draft.event_type,
+            preferred_date=draft.preferred_date,
+            alternate_date=draft.alternate_date,
+            start_time=draft.start_time,
+            end_time=draft.end_time,
+            guest_count=draft.guest_count,
+            budget_min=draft.budget_min,
+            budget_max=draft.budget_max,
+            customer_name=draft.customer_name,
+            email=draft.email,
+            phone=draft.phone,
+            company_name=draft.company_name,
+            space_preference=(
+                draft.space_preference
+            ),
+            food_package=draft.food_package,
+            bar_package=draft.bar_package,
+            dietary_requirements=(
+                draft.dietary_requirements
+            ),
+            notes=draft.notes,
+            completed_fields=(
+                draft.completed_fields
+            ),
+            missing_fields=(
+                draft.missing_fields
+            ),
+            updated_at=reference,
+        )
+
+    # ========================================================
+    # SECTION 14 - ANALYTICS
+    # ========================================================
+
+    def _record_chat_analytics(
+        self,
+        *,
+        request: ChatRequest,
+        browser_session: Any,
+        conversation: Any,
+        user_message: Any,
+        assistant_message: Any,
+        nlu_result: NLUResult,
+        knowledge_result: KnowledgeResult,
+        grounded_response: GroundedResponse,
+        request_id: str,
+        reference: datetime,
+    ) -> None:
+        self.analytics.record(
+            event_name="chat_message_completed",
+            business_slug=request.business_slug,
+            browser_session_id=(
+                browser_session.id
+            ),
+            conversation_id=(
+                conversation.id
+            ),
+            message_id=(
+                assistant_message.id
+            ),
+            page_url=(
+                request.page_context.url
+            ),
+            page_category=(
+                request.page_context.category
+            ),
+            intent=(
+                nlu_result.primary_intent.value
+            ),
+            event_value=1.0,
+            occurred_at=reference,
+            metadata_json={
+                "request_id": request_id,
+                "user_message_id": (
+                    user_message.id
+                ),
+                "assistant_message_id": (
+                    assistant_message.id
+                ),
+                "nlu_decision": (
+                    nlu_result
+                    .nlu_decision
+                    .value
+                ),
+                "nlu_confidence": (
+                    nlu_result
+                    .confidence
+                    .overall
+                ),
+                "knowledge_decision": (
+                    knowledge_result
+                    .decision
+                    .value
+                ),
+                "verified_fact_count": (
+                    knowledge_result
+                    .verified_fact_count
+                ),
+                "response_decision": (
+                    grounded_response
+                    .decision
+                    .value
+                ),
+                "response_source_count": (
+                    len(
+                        grounded_response
+                        .sources
+                    )
+                ),
+                "response_action_count": (
+                    len(
+                        grounded_response
+                        .actions
+                    )
+                ),
+                "destination_match_count": (
+                    self._destination_match_count(
+                        grounded_response
+                    )
+                ),
+                "destination_keys": (
+                    self._destination_keys(
+                        grounded_response
+                    )
+                ),
+                "destination_urls": (
+                    self._destination_urls(
+                        grounded_response
+                    )
+                ),
+                "destination_routing_version": (
+                    self._destination_routing_version(
+                        grounded_response
+                    )
+                ),
+            },
+        )
+
+    # ========================================================
+    # SECTION 15 - CONVERSATION SUMMARY
+    # ========================================================
+
+    def _update_conversation_summary(
+        self,
+        *,
+        conversation: Any,
+        nlu_result: NLUResult,
+        grounded_response: GroundedResponse,
+        reference: datetime,
+    ) -> None:
+        if hasattr(
+            conversation,
+            "message_count",
+        ):
+            conversation.message_count = int(
+                getattr(
+                    conversation,
+                    "message_count",
+                    0,
+                )
+                or 0
+            ) + 2
+
+        if hasattr(
+            conversation,
+            "summary",
+        ):
+            conversation.summary = (
+                nlu_result.context.summary
+            )
+
+        if hasattr(
+            conversation,
+            "last_response_preview",
+        ):
+            conversation.last_response_preview = (
+                grounded_response.message[
+                    :500
+                ]
+            )
+
+        if hasattr(
+            conversation,
+            "last_activity_at",
+        ):
+            conversation.last_activity_at = (
+                reference
+            )
+
+    # ========================================================
+    # SECTION 16 - CHAT RESPONSE BUILDING
+    # ========================================================
+
+    def _build_chat_response(
+        self,
+        *,
+        request_id: str,
+        request: ChatRequest,
+        browser_session: Any,
+        conversation: Any,
+        assistant_message: Any,
+        nlu_result: NLUResult,
+        grounded_response: GroundedResponse,
+        processing_time_ms: float,
+        reference: datetime,
+    ) -> ChatResponse:
+        return ChatResponse(
+            request_id=request_id,
+            session_id=browser_session.id,
+            conversation_id=conversation.id,
+            message_id=assistant_message.id,
+            message=grounded_response.message,
+            detected_intent=(
+                nlu_result.primary_intent.value
+            ),
+            normalized_message=(
+                nlu_result.normalized_text
+            ),
+            corrected_message=(
+                nlu_result.corrected_text
+            ),
+            language=(
+                request.requested_language
+                or request.page_context.language
+            ),
+            confidence=(
+                grounded_response.confidence
+            ),
+            spelling_corrections=list(
+                grounded_response
+                .spelling_corrections
+            ),
+            entities=list(
+                grounded_response.entities
+            ),
+            sources=list(
+                grounded_response.sources
+            ),
+            actions=list(
+                grounded_response.actions
+            ),
+            validation=(
+                grounded_response.validation
+            ),
+            widget_state=(
+                grounded_response.widget_state
+            ),
+            widget_size=(
+                grounded_response.widget_size
+            ),
+            private_event_draft=(
+                grounded_response
+                .private_event_draft
+            ),
+            human_handoff_available=(
+                grounded_response
+                .human_handoff_available
+            ),
+            human_handoff_required=(
+                grounded_response
+                .human_handoff_required
+            ),
+            response_template_id=(
+                grounded_response
+                .response_template_id
+            ),
+            response_variant_id=(
+                grounded_response
+                .response_variant_id
+            ),
+            model_versions={
+                "chat_service": (
+                    CHAT_SERVICE_VERSION
+                ),
+                "nlu_engine": (
+                    nlu_result.engine_version
+                ),
+                "knowledge_service": (
+                    grounded_response
+                    .processing_metadata
+                    .get(
+                        "knowledge_service_version",
+                        "",
+                    )
+                ),
+                "response_service": (
+                    grounded_response
+                    .service_version
+                ),
+                "destination_routing": (
+                    self._destination_routing_version(
+                        grounded_response
+                    )
+                ),
+            },
+            processing_time_ms=int(
+                round(
+                    processing_time_ms
+                )
+            ),
+            created_at=reference,
+            metadata={
+                "chat_service_phase": (
+                    CHAT_SERVICE_PHASE
+                ),
+                "grounded_response_decision": (
+                    grounded_response
+                    .decision
+                    .value
+                ),
+                "nlu_decision": (
+                    nlu_result
+                    .nlu_decision
+                    .value
+                ),
+                "active_flow": (
+                    nlu_result.active_flow
+                ),
+                "pending_fields": list(
+                    nlu_result.pending_fields
+                ),
+                "completed_fields": list(
+                    nlu_result.completed_fields
+                ),
+                "destination_routing": (
+                    self._destination_routing_metadata(
+                        grounded_response
+                    )
+                ),
+                "restaurant_schema": (
+                    self._restaurant_schema_metadata(
+                        grounded_response
+                    )
+                ),
+                "official_destination_urls": (
+                    self._destination_urls(
+                        grounded_response
+                    )
+                ),
+                "destination_match_count": (
+                    self._destination_match_count(
+                        grounded_response
+                    )
+                ),
+            },
+        )
+
+    # ========================================================
+    # SECTION 16A - DESTINATION ROUTING METADATA
+    # ========================================================
+
+    @staticmethod
+    def _destination_routing_metadata(
+        grounded_response: GroundedResponse,
+    ) -> dict[str, Any]:
+        """
+        Return a defensive copy of destination-routing metadata.
+
+        The response service owns destination matching. The chat service
+        propagates the resulting verified navigation payload without
+        recomputing or mutating it.
+        """
+
+        metadata = (
+            grounded_response.processing_metadata
+            if isinstance(
+                grounded_response.processing_metadata,
+                Mapping,
+            )
+            else {}
+        )
+
+        routing = metadata.get(
+            "destination_routing",
+            {},
+        )
+
+        if not isinstance(
+            routing,
+            Mapping,
+        ):
+            return {}
+
+        return copy.deepcopy(
+            dict(routing)
+        )
+
+    @staticmethod
+    def _restaurant_schema_metadata(
+        grounded_response: GroundedResponse,
+    ) -> dict[str, Any]:
+        """
+        Return Schema.org Restaurant metadata when available.
+        """
+
+        metadata = (
+            grounded_response.processing_metadata
+            if isinstance(
+                grounded_response.processing_metadata,
+                Mapping,
+            )
+            else {}
+        )
+
+        schema = metadata.get(
+            "restaurant_schema",
+            {},
+        )
+
+        if not isinstance(
+            schema,
+            Mapping,
+        ):
+            return {}
+
+        return copy.deepcopy(
+            dict(schema)
+        )
+
+    @classmethod
+    def _destination_matches(
+        cls,
+        grounded_response: GroundedResponse,
+    ) -> list[dict[str, Any]]:
+        routing = cls._destination_routing_metadata(
+            grounded_response
+        )
+
+        matches = routing.get(
+            "matches",
+            [],
+        )
+
+        if not isinstance(
+            matches,
+            Sequence,
+        ) or isinstance(
+            matches,
+            (str, bytes, bytearray),
+        ):
+            return []
+
+        return [
+            copy.deepcopy(
+                dict(match)
+            )
+            for match in matches
+            if isinstance(
+                match,
+                Mapping,
+            )
+        ]
+
+    @classmethod
+    def _destination_match_count(
+        cls,
+        grounded_response: GroundedResponse,
+    ) -> int:
+        routing = cls._destination_routing_metadata(
+            grounded_response
+        )
+
+        raw_count = routing.get(
+            "match_count",
+        )
+
+        if isinstance(
+            raw_count,
+            int,
+        ):
+            return max(
+                raw_count,
+                0,
+            )
+
+        return len(
+            cls._destination_matches(
+                grounded_response
+            )
+        )
+
+    @classmethod
+    def _destination_keys(
+        cls,
+        grounded_response: GroundedResponse,
+    ) -> list[str]:
+        keys: list[str] = []
+
+        for match in cls._destination_matches(
+            grounded_response
+        ):
+            destination = match.get(
+                "destination",
+                {},
+            )
+
+            if not isinstance(
+                destination,
+                Mapping,
+            ):
+                continue
+
+            key = destination.get(
+                "key"
+            )
+
+            if isinstance(
+                key,
+                str,
+            ) and key.strip():
+                keys.append(
+                    key.strip()
+                )
+
+        return list(
+            dict.fromkeys(
+                keys
+            )
+        )
+
+    @classmethod
+    def _destination_urls(
+        cls,
+        grounded_response: GroundedResponse,
+    ) -> list[str]:
+        routing = cls._destination_routing_metadata(
+            grounded_response
+        )
+
+        raw_urls = routing.get(
+            "official_destinations",
+            [],
+        )
+
+        urls: list[str] = []
+
+        if isinstance(
+            raw_urls,
+            Sequence,
+        ) and not isinstance(
+            raw_urls,
+            (str, bytes, bytearray),
+        ):
+            for value in raw_urls:
+                if (
+                    isinstance(
+                        value,
+                        str,
+                    )
+                    and value.startswith(
+                        "https://"
+                    )
+                ):
+                    urls.append(
+                        value
+                    )
+
+        if not urls:
+            for match in cls._destination_matches(
+                grounded_response
+            ):
+                destination = match.get(
+                    "destination",
+                    {},
+                )
+
+                if not isinstance(
+                    destination,
+                    Mapping,
+                ):
+                    continue
+
+                value = destination.get(
+                    "url"
+                )
+
+                if (
+                    isinstance(
+                        value,
+                        str,
+                    )
+                    and value.startswith(
+                        "https://"
+                    )
+                ):
+                    urls.append(
+                        value
+                    )
+
+        return list(
+            dict.fromkeys(
+                urls
+            )
+        )
+
+    @classmethod
+    def _destination_routing_version(
+        cls,
+        grounded_response: GroundedResponse,
+    ) -> str:
+        routing = cls._destination_routing_metadata(
+            grounded_response
+        )
+
+        value = routing.get(
+            "service_version",
+            "",
+        )
+
+        return (
+            value.strip()
+            if isinstance(
+                value,
+                str,
+            )
+            else ""
+        )
+
+    # ========================================================
+    # SECTION 17 - RESTORE MESSAGE CONVERSION
+    # ========================================================
+
+    def _message_to_schema(
+        self,
+        message: Any,
+    ) -> ChatMessage:
+        role = str(
+            getattr(
+                message,
+                "role",
+                MessageRole.ASSISTANT.value,
+            )
+        )
+
+        status = str(
+            getattr(
+                message,
+                "status",
+                MessageStatus.COMPLETED.value,
+            )
+        )
+
+        return ChatMessage(
+            id=message.id,
+            conversation_id=(
+                getattr(
+                    message,
+                    "conversation_id",
+                    None,
+                )
+            ),
+            sequence_number=(
+                getattr(
+                    message,
+                    "sequence_number",
+                    None,
+                )
+            ),
+            role=role,
+            status=status,
+            text=str(
+                getattr(
+                    message,
+                    "text",
+                    "",
+                )
+            ),
+            original_text=(
+                getattr(
+                    message,
+                    "original_text",
+                    None,
+                )
+            ),
+            normalized_text=(
+                getattr(
+                    message,
+                    "normalized_text",
+                    None,
+                )
+            ),
+            corrected_text=(
+                getattr(
+                    message,
+                    "corrected_text",
+                    None,
+                )
+            ),
+            created_at=(
+                getattr(
+                    message,
+                    "created_at",
+                    datetime.now().astimezone(),
+                )
+            ),
+            page_url=(
+                getattr(
+                    message,
+                    "page_url",
+                    None,
+                )
+            ),
+            page_category=(
+                getattr(
+                    message,
+                    "page_category",
+                    None,
+                )
+            ),
+            detected_intent=(
+                getattr(
+                    message,
+                    "detected_intent",
+                    None,
+                )
+            ),
+            sources=(
+                getattr(
+                    message,
+                    "sources_json",
+                    [],
+                )
+                or []
+            ),
+            actions=(
+                getattr(
+                    message,
+                    "actions_json",
+                    [],
+                )
+                or []
+            ),
+            metadata=(
+                getattr(
+                    message,
+                    "metadata_json",
+                    {},
+                )
+                or {}
+            ),
+        )
+
+    # ========================================================
+    # SECTION 18 - CONTEXT LOADING
+    # ========================================================
+
+    @staticmethod
+    def _load_conversation_context(
+        conversation: Any,
+    ) -> ConversationContext | None:
+        payload = getattr(
+            conversation,
+            "context_json",
+            None,
+        )
+
+        if not payload:
+            return None
+
+        if isinstance(
+            payload,
+            ConversationContext,
+        ):
+            return payload
+
+        if isinstance(
+            payload,
+            Mapping,
+        ):
+            return ConversationContext.from_dict(
+                payload
+            )
+
+        return None
+
+    # ========================================================
+    # SECTION 19 - PRIVATE EVENT RESTORATION
+    # ========================================================
+
+    def _restore_private_event_draft(
+        self,
+        conversation_id: str,
+    ) -> PrivateEventDraft | None:
+        record = (
+            self.private_events
+            .get_draft_for_conversation(
+                conversation_id
+            )
+        )
+
+        if record is None:
+            return None
+
+        return PrivateEventDraft(
+            event_type=getattr(
+                record,
+                "event_type",
+                None,
+            ),
+            preferred_date=getattr(
+                record,
+                "preferred_date",
+                None,
+            ),
+            alternate_date=getattr(
+                record,
+                "alternate_date",
+                None,
+            ),
+            start_time=getattr(
+                record,
+                "start_time",
+                None,
+            ),
+            end_time=getattr(
+                record,
+                "end_time",
+                None,
+            ),
+            guest_count=getattr(
+                record,
+                "guest_count",
+                None,
+            ),
+            budget_min=getattr(
+                record,
+                "budget_min",
+                None,
+            ),
+            budget_max=getattr(
+                record,
+                "budget_max",
+                None,
+            ),
+            customer_name=getattr(
+                record,
+                "customer_name",
+                None,
+            ),
+            email=getattr(
+                record,
+                "email",
+                None,
+            ),
+            phone=getattr(
+                record,
+                "phone",
+                None,
+            ),
+            company_name=getattr(
+                record,
+                "company_name",
+                None,
+            ),
+            space_preference=getattr(
+                record,
+                "space_preference",
+                None,
+            ),
+            food_package=getattr(
+                record,
+                "food_package",
+                None,
+            ),
+            bar_package=getattr(
+                record,
+                "bar_package",
+                None,
+            ),
+            dietary_requirements=getattr(
+                record,
+                "dietary_requirements",
+                None,
+            ),
+            notes=getattr(
+                record,
+                "notes",
+                None,
+            ),
+            completed_fields=list(
+                getattr(
+                    record,
+                    "completed_fields",
+                    [],
+                )
+                or []
+            ),
+            missing_fields=list(
+                getattr(
+                    record,
+                    "missing_fields",
+                    [],
+                )
+                or []
+            ),
+        )
+
+    # ========================================================
+    # SECTION 20 - WIDGET ENUM HELPERS
+    # ========================================================
+
+    @staticmethod
+    def _widget_state_value(
+        value: WidgetState,
+    ) -> str:
+        return str(value)
+
+    @staticmethod
+    def _widget_size_value(
+        value: WidgetSize,
+    ) -> str:
+        return str(value)
+
+    @staticmethod
+    def _coerce_widget_state(
+        value: Any,
+    ) -> WidgetState:
+        candidate = str(
+            value
+            or WidgetState.COLLAPSED.value
         )
 
         try:
-            response = await call_next(
-                request
-            )
+            return WidgetState(candidate)
+        except ValueError:
+            return WidgetState.COLLAPSED
 
-        except Exception:
-            logger.exception(
-                (
-                    "Unhandled request failure "
-                    "request_id=%s method=%s path=%s"
-                ),
-                request_id,
-                request.method,
-                request.url.path,
-            )
-            raise
-
-        elapsed_ms = round(
-            (
-                time.perf_counter()
-                - started_at
-            )
-            * 1000.0,
-            3,
+    @staticmethod
+    def _coerce_widget_size(
+        value: Any,
+    ) -> WidgetSize:
+        candidate = str(
+            value
+            or WidgetSize.COMPACT.value
         )
 
-        response.headers[
-            "X-Request-ID"
-        ] = request_id
+        try:
+            return WidgetSize(candidate)
+        except ValueError:
+            return WidgetSize.COMPACT
 
-        response.headers[
-            "X-Horseshoe-App-Version"
-        ] = APPLICATION_VERSION
+    # ========================================================
+    # SECTION 21 - IDENTIFIER HELPERS
+    # ========================================================
 
-        response.headers[
-            "X-Content-Type-Options"
-        ] = "nosniff"
-
-        response.headers[
-            "X-Frame-Options"
-        ] = "SAMEORIGIN"
-
-        response.headers[
-            "Referrer-Policy"
-        ] = "strict-origin-when-cross-origin"
-
-        response.headers[
-            "Permissions-Policy"
-        ] = (
-            "camera=(), microphone=(), geolocation=()"
-        )
-
-        if request.url.path.startswith(
-            "/api/"
-        ):
-            response.headers[
-                "Cache-Control"
-            ] = "no-store"
-
-        logger.info(
-            (
-                "HTTP request completed "
-                "request_id=%s method=%s path=%s "
-                "status=%s duration_ms=%s"
-            ),
-            request_id,
-            request.method,
-            request.url.path,
-            response.status_code,
-            elapsed_ms,
-        )
-
-        return response
-
-
-# ============================================================
-# SECTION 07 - EXCEPTION HANDLERS
-# ============================================================
-
-def _register_exception_handlers(
-    application: FastAPI,
-) -> None:
-    @application.exception_handler(
-        RequestValidationError
-    )
-    async def validation_exception_handler(
-        request: Request,
-        exc: RequestValidationError,
-    ) -> JSONResponse:
-        request_id = getattr(
-            request.state,
-            "request_id",
-            f"request_{uuid.uuid4().hex}",
-        )
-
-        errors = []
-
-        for error in exc.errors():
-            errors.append(
-                {
-                    "location": [
-                        str(value)
-                        for value
-                        in error.get(
-                            "loc",
-                            (),
-                        )
-                    ],
-                    "message": error.get(
-                        "msg",
-                        "Invalid value.",
-                    ),
-                    "type": error.get(
-                        "type",
-                        "validation_error",
-                    ),
-                }
-            )
-
-        return JSONResponse(
-            status_code=(
-                status.HTTP_422_UNPROCESSABLE_ENTITY
-            ),
-            content={
-                "request_id": request_id,
-                "error": {
-                    "code": "validation_error",
-                    "message": (
-                        "The request contains invalid values."
-                    ),
-                    "retryable": False,
-                    "details": errors,
-                },
-                "timestamp": (
-                    datetime.now()
-                    .astimezone()
-                    .isoformat()
-                ),
-            },
-            headers={
-                "X-Request-ID": request_id,
-                "Cache-Control": "no-store",
-            },
-        )
-
-    @application.exception_handler(
-        HTTPException
-    )
-    async def http_exception_handler(
-        request: Request,
-        exc: HTTPException,
-    ) -> JSONResponse:
-        request_id = getattr(
-            request.state,
-            "request_id",
-            f"request_{uuid.uuid4().hex}",
-        )
-
-        detail = exc.detail
-
-        if isinstance(
-            detail,
-            dict,
-        ):
-            content = detail
-        else:
-            content = {
-                "request_id": request_id,
-                "error": {
-                    "code": "http_error",
-                    "message": str(detail),
-                    "retryable": (
-                        exc.status_code >= 500
-                    ),
-                },
-                "status_code": (
-                    exc.status_code
-                ),
-                "timestamp": (
-                    datetime.now()
-                    .astimezone()
-                    .isoformat()
-                ),
-            }
-
-        return JSONResponse(
-            status_code=exc.status_code,
-            content=content,
-            headers={
-                "X-Request-ID": request_id,
-                "Cache-Control": "no-store",
-                **dict(
-                    exc.headers or {}
-                ),
-            },
-        )
-
-    @application.exception_handler(
-        SQLAlchemyError
-    )
-    async def database_exception_handler(
-        request: Request,
-        exc: SQLAlchemyError,
-    ) -> JSONResponse:
-        request_id = getattr(
-            request.state,
-            "request_id",
-            f"request_{uuid.uuid4().hex}",
-        )
-
-        logger.exception(
-            (
-                "Database request failure "
-                "request_id=%s path=%s"
-            ),
-            request_id,
-            request.url.path,
-        )
-
-        return JSONResponse(
-            status_code=(
-                status.HTTP_503_SERVICE_UNAVAILABLE
-            ),
-            content={
-                "request_id": request_id,
-                "error": {
-                    "code": "database_unavailable",
-                    "message": (
-                        "The service is temporarily unable "
-                        "to access its database."
-                    ),
-                    "retryable": True,
-                },
-                "timestamp": (
-                    datetime.now()
-                    .astimezone()
-                    .isoformat()
-                ),
-            },
-            headers={
-                "X-Request-ID": request_id,
-                "Retry-After": "5",
-                "Cache-Control": "no-store",
-            },
-        )
-
-    @application.exception_handler(
-        Exception
-    )
-    async def unhandled_exception_handler(
-        request: Request,
-        exc: Exception,
-    ) -> JSONResponse:
-        request_id = getattr(
-            request.state,
-            "request_id",
-            f"request_{uuid.uuid4().hex}",
-        )
-
-        logger.exception(
-            (
-                "Unhandled application exception "
-                "request_id=%s method=%s path=%s"
-            ),
-            request_id,
-            request.method,
-            request.url.path,
-        )
-
-        return JSONResponse(
-            status_code=(
-                status.HTTP_500_INTERNAL_SERVER_ERROR
-            ),
-            content={
-                "request_id": request_id,
-                "error": {
-                    "code": "internal_error",
-                    "message": (
-                        "The request could not be completed."
-                    ),
-                    "retryable": True,
-                },
-                "timestamp": (
-                    datetime.now()
-                    .astimezone()
-                    .isoformat()
-                ),
-            },
-            headers={
-                "X-Request-ID": request_id,
-                "Cache-Control": "no-store",
-            },
+    @staticmethod
+    def _new_id(
+        prefix: str,
+    ) -> str:
+        return (
+            f"{prefix}_"
+            f"{uuid.uuid4().hex}"
         )
 
 
 # ============================================================
-# SECTION 08 - APPLICATION ROUTES
+# SECTION 22 - MODULE-LEVEL HELPERS
 # ============================================================
 
-def _register_application_routes(
-    application: FastAPI,
-) -> None:
-    @application.get(
-        "/",
-        include_in_schema=False,
+def process_chat_request(
+    session: Session,
+    request: ChatRequest,
+    *,
+    business_slug: str = DEFAULT_BUSINESS_SLUG,
+    now: datetime | None = None,
+) -> ChatProcessingResult:
+    """
+    Process one complete chat request.
+    """
+
+    return ChatService(
+        session,
+        business_slug=business_slug,
+    ).process(
+        request,
+        now=now,
     )
-    async def root() -> RedirectResponse:
-        return RedirectResponse(
-            url="/static/widget/widget-preview.html",
-            status_code=(
-                status.HTTP_307_TEMPORARY_REDIRECT
-            ),
-        )
 
-    @application.get(
-        "/health",
-        tags=["system"],
-        summary="Application health",
+
+def restore_chat_conversation(
+    session: Session,
+    *,
+    session_id: str,
+    conversation_id: str | None = None,
+    page_context: PageContext | None = None,
+    limit: int = DEFAULT_RESTORE_LIMIT,
+    now: datetime | None = None,
+) -> RestoreResult:
+    """
+    Restore one persisted chat conversation.
+    """
+
+    return ChatService(
+        session
+    ).restore(
+        session_id=session_id,
+        conversation_id=(
+            conversation_id
+        ),
+        page_context=page_context,
+        limit=limit,
+        now=now,
     )
-    async def application_health(
-        request: Request,
-    ) -> JSONResponse:
-        database_available, database_error = (
-            _check_database()
+
+
+# ============================================================
+# SECTION 23 - SELF-TEST
+# ============================================================
+
+def validate_chat_service_module() -> dict[str, Any]:
+    from datetime import time as business_time
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from app.database.base import Base
+    from app.database.models import (
+        Business,
+        BusinessHour,
+    )
+
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={
+            "check_same_thread": False,
+        },
+        future=True,
+    )
+
+    Base.metadata.create_all(engine)
+
+    reference = datetime(
+        2026,
+        7,
+        22,
+        12,
+        0,
+    ).astimezone()
+
+    checks: dict[str, bool] = {}
+
+    with Session(engine) as session:
+        business = Business(
+            slug="horseshoe-tavern",
+            display_name="Horseshoe Tavern",
+            website_url=(
+                "https://www.thehorseshoetavern.com/"
+            ),
+            source_type="official_website",
+            source_name="Official website",
+            source_url=(
+                "https://www.thehorseshoetavern.com/"
+            ),
         )
 
-        startup_complete = bool(
-            getattr(
-                request.app.state,
-                "startup_complete",
-                False,
-            )
+        business.mark_verified(
+            verified_by="chat-service-test",
+            notes="Verified test business",
         )
 
-        overall_ok = (
-            startup_complete
-            and database_available
+        hours = BusinessHour(
+            business=business,
+            service_type="kitchen",
+            day_of_week=reference.weekday(),
+            open_time=business_time(11, 0),
+            close_time=business_time(22, 0),
+            is_closed=False,
+            source_type="official_hours",
+            source_name="Official kitchen hours",
+            source_url=(
+                "https://www.thehorseshoetavern.com/hours"
+            ),
         )
 
-        payload = {
-            "status": (
-                "ok"
-                if overall_ok
-                else "degraded"
+        hours.mark_verified(
+            verified_by="chat-service-test",
+            notes="Verified test hours",
+        )
+
+        session.add_all(
+            [
+                business,
+                hours,
+            ]
+        )
+
+        session.commit()
+
+        service = ChatService(
+            session
+        )
+
+        request = ChatRequest(
+            session_id="session_chatservice123",
+            conversation_id=None,
+            message=(
+                "wat time does the kichen close today"
             ),
-            "application": APPLICATION_NAME,
-            "version": APPLICATION_VERSION,
-            "phase": APPLICATION_PHASE,
-            "environment": _environment(),
-            "startup_complete": (
-                startup_complete
+            business_slug="horseshoe-tavern",
+            page_context=PageContext(
+                url=(
+                    "https://www.thehorseshoetavern.com/"
+                ),
+                path="/",
+                title="Horseshoe Tavern",
+                category="home",
             ),
-            "database_available": (
-                database_available
+            widget_context=WidgetContext(
+                state=WidgetState.OPEN,
+                size=WidgetSize.COMPACT,
             ),
-            "database_error": (
-                database_error
+        )
+
+        result = service.process(
+            request,
+            now=reference,
+        )
+
+        restore = service.restore(
+            session_id=result.response.session_id,
+            conversation_id=(
+                result.response.conversation_id
             ),
-            "chat_api_version": (
-                CHAT_API_VERSION
+            now=reference,
+        )
+
+        checks = {
+            "chat_completed": (
+                result.decision
+                == ChatServiceDecision.COMPLETED
             ),
-            "chat_api_phase": (
-                CHAT_API_PHASE
+            "response_persisted": (
+                result.persisted is True
             ),
-            "timestamp": (
-                datetime.now()
-                .astimezone()
-                .isoformat()
+            "intent_detected": (
+                result.response.detected_intent
+                == "HOURS_KITCHEN"
+            ),
+            "response_message_present": (
+                bool(result.response.message)
+            ),
+            "source_present": (
+                bool(result.response.sources)
+            ),
+            "session_id_present": (
+                result.response.session_id
+                == "session_chatservice123"
+            ),
+            "conversation_id_present": (
+                bool(
+                    result.response.conversation_id
+                )
+            ),
+            "assistant_message_id_present": (
+                bool(
+                    result.response.message_id
+                )
+            ),
+            "validation_passed": (
+                result.response.validation.passed
+            ),
+            "restore_succeeded": (
+                restore.response.restored
+                is True
+            ),
+            "restore_has_messages": (
+                len(
+                    restore.response.messages
+                )
+                >= 2
+            ),
+            "restore_same_conversation": (
+                restore.response.conversation_id
+                == result.response.conversation_id
+            ),
+            "json_safe": bool(
+                result.as_dict()
             ),
         }
 
-        return JSONResponse(
-            status_code=(
-                status.HTTP_200_OK
-                if overall_ok
-                else status.HTTP_503_SERVICE_UNAVAILABLE
-            ),
-            content=payload,
-            headers={
-                "Cache-Control": "no-store",
-            },
-        )
-
-    @application.get(
-        "/ready",
-        tags=["system"],
-        summary="Application readiness",
-    )
-    async def readiness(
-        request: Request,
-    ) -> JSONResponse:
-        database_available, database_error = (
-            _check_database()
-        )
-
-        static_available = (
-            WIDGET_DIRECTORY.exists()
-            and (
-                WIDGET_DIRECTORY
-                / "horseshoe-widget.js"
-            ).exists()
-            and (
-                WIDGET_DIRECTORY
-                / "horseshoe-widget.css"
-            ).exists()
-        )
-
-        startup_complete = bool(
-            getattr(
-                request.app.state,
-                "startup_complete",
-                False,
-            )
-        )
-
-        ready = (
-            startup_complete
-            and database_available
-            and static_available
-        )
-
-        return JSONResponse(
-            status_code=(
-                status.HTTP_200_OK
-                if ready
-                else status.HTTP_503_SERVICE_UNAVAILABLE
-            ),
-            content={
-                "status": (
-                    "ready"
-                    if ready
-                    else "not_ready"
-                ),
-                "startup_complete": (
-                    startup_complete
-                ),
-                "database_available": (
-                    database_available
-                ),
-                "database_error": (
-                    database_error
-                ),
-                "widget_assets_available": (
-                    static_available
-                ),
-                "timestamp": (
-                    datetime.now()
-                    .astimezone()
-                    .isoformat()
-                ),
-            },
-            headers={
-                "Cache-Control": "no-store",
-            },
-        )
-
-    @application.get(
-        "/api/meta",
-        tags=["system"],
-        summary="Application metadata",
-    )
-    async def application_metadata() -> dict[str, Any]:
-        return {
-            "application": APPLICATION_NAME,
-            "description": APPLICATION_DESCRIPTION,
-            "version": APPLICATION_VERSION,
-            "phase": APPLICATION_PHASE,
-            "environment": _environment(),
-            "chat_api": {
-                "version": CHAT_API_VERSION,
-                "phase": CHAT_API_PHASE,
-                "base_path": "/api/chat",
-            },
-            "widget": {
-                "script_url": (
-                    "/static/widget/horseshoe-widget.js"
-                ),
-                "stylesheet_url": (
-                    "/static/widget/horseshoe-widget.css"
-                ),
-                "preview_url": (
-                    "/static/widget/widget-preview.html"
-                ),
-            },
-            "documentation": {
-                "swagger": "/docs",
-                "redoc": "/redoc",
-                "openapi": "/openapi.json",
-            },
-        }
-
-    @application.get(
-        "/favicon.ico",
-        include_in_schema=False,
-    )
-    async def favicon() -> Response:
-        return Response(
-            status_code=(
-                status.HTTP_204_NO_CONTENT
-            )
-        )
-
-    @application.get(
-        "/robots.txt",
-        include_in_schema=False,
-    )
-    async def robots() -> Response:
-        return Response(
-            content=(
-                "User-agent: *\n"
-                "Disallow: /api/\n"
-                "Disallow: /docs\n"
-                "Disallow: /redoc\n"
-            ),
-            media_type="text/plain",
-        )
-
-
-# ============================================================
-# SECTION 09 - APPLICATION INSTANCE
-# ============================================================
-
-app = create_application()
-
-
-# ============================================================
-# SECTION 10 - VALIDATION
-# ============================================================
-
-def validate_main_module() -> dict[str, Any]:
-    paths = {
-        route.path
-        for route in app.routes
-    }
-
-    required_paths = {
-        "/",
-        "/health",
-        "/ready",
-        "/api/meta",
-        "/api/chat/message",
-        "/api/chat/restore",
-        "/api/chat/widget-state",
-        "/api/chat/feedback",
-        "/api/chat/config",
-        "/api/chat/health",
-    }
-
-    checks = {
-        "application_created": (
-            isinstance(
-                app,
-                FastAPI,
-            )
-        ),
-        "application_title_valid": (
-            app.title
-            == APPLICATION_NAME
-        ),
-        "application_version_valid": (
-            app.version
-            == APPLICATION_VERSION
-        ),
-        "required_routes_present": (
-            required_paths.issubset(
-                paths
-            )
-        ),
-        "static_directory_present": (
-            STATIC_DIRECTORY.exists()
-        ),
-        "widget_directory_present": (
-            WIDGET_DIRECTORY.exists()
-        ),
-        "widget_javascript_present": (
-            (
-                WIDGET_DIRECTORY
-                / "horseshoe-widget.js"
-            ).exists()
-        ),
-        "widget_stylesheet_present": (
-            (
-                WIDGET_DIRECTORY
-                / "horseshoe-widget.css"
-            ).exists()
-        ),
-        "openapi_available": bool(
-            app.openapi()
-        ),
-        "application_version_present": bool(
-            APPLICATION_VERSION
-        ),
-        "application_phase_present": bool(
-            APPLICATION_PHASE
-        ),
-    }
+    engine.dispose()
 
     failed_checks = [
         name
@@ -1084,53 +2381,23 @@ def validate_main_module() -> dict[str, Any]:
         ),
         "checks": checks,
         "failed_checks": failed_checks,
-        "routes": sorted(paths),
-        "application_version": (
-            APPLICATION_VERSION
-        ),
-        "application_phase": (
-            APPLICATION_PHASE
-        ),
     }
 
 
 # ============================================================
-# SECTION 11 - LOCAL EXECUTION
+# SECTION 24 - DIRECT EXECUTION
 # ============================================================
 
 if __name__ == "__main__":
-    import uvicorn
+    report = validate_chat_service_module()
 
-    uvicorn.run(
-        "app.main:app",
-        host=str(
-            _setting(
-                "host",
-                "0.0.0.0",
-            )
-        ),
-        port=int(
-            os.getenv(
-                "PORT",
-                str(
-                    _setting(
-                        "port",
-                        8000,
-                    )
-                ),
-            )
-        ),
-        reload=bool(
-            _setting(
-                "reload",
-                _debug_enabled(),
-            )
-        ),
-        log_level=str(
-            _setting(
-                "log_level",
-                "info",
-            )
-        ).lower(),
+    print(
+        json.dumps(
+            report,
+            indent=2,
+            default=str,
+        )
     )
 
+    if report["status"] != "ok":
+        raise SystemExit(1)

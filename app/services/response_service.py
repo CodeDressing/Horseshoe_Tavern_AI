@@ -1,4 +1,5 @@
-# ============================================================
+﻿
+# ==========================================================
 # Exact file location: app/services/response_service.py
 # Horseshoe Tavern AI
 # Phase 1 Part 1.33

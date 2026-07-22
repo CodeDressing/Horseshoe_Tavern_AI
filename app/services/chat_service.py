@@ -1,7 +1,7 @@
-﻿# ============================================================
+# ============================================================
 # Exact file location: app/services/chat_service.py
 # Horseshoe Tavern AI
-# Phase 1 Part 1.20
+# Phase 1 Part 1.37
 # End-to-end chat orchestration, persistence, restoration,
 # widget state, analytics, grounded responses, and transactions
 # ============================================================
@@ -103,8 +103,8 @@ from app.services.response_service import (
 
 logger = get_logger(__name__)
 
-CHAT_SERVICE_VERSION: Final[str] = "1.0.0"
-CHAT_SERVICE_PHASE: Final[str] = "Phase 1 Part 1.20"
+CHAT_SERVICE_VERSION: Final[str] = "1.1.0"
+CHAT_SERVICE_PHASE: Final[str] = "Phase 1 Part 1.37"
 
 DEFAULT_BUSINESS_SLUG: Final[str] = "horseshoe-tavern"
 DEFAULT_RESTORE_LIMIT: Final[int] = 100
@@ -492,6 +492,16 @@ class ChatService:
                     ),
                     "assistant_message_id": (
                         assistant_message.id
+                    ),
+                    "destination_routing": (
+                        self._destination_routing_metadata(
+                            grounded_response
+                        )
+                    ),
+                    "restaurant_schema": (
+                        self._restaurant_schema_metadata(
+                            grounded_response
+                        )
                     ),
                 },
             )
@@ -1289,6 +1299,26 @@ class ChatService:
                         .actions
                     )
                 ),
+                "destination_match_count": (
+                    self._destination_match_count(
+                        grounded_response
+                    )
+                ),
+                "destination_keys": (
+                    self._destination_keys(
+                        grounded_response
+                    )
+                ),
+                "destination_urls": (
+                    self._destination_urls(
+                        grounded_response
+                    )
+                ),
+                "destination_routing_version": (
+                    self._destination_routing_version(
+                        grounded_response
+                    )
+                ),
             },
         )
 
@@ -1443,6 +1473,11 @@ class ChatService:
                     grounded_response
                     .service_version
                 ),
+                "destination_routing": (
+                    self._destination_routing_version(
+                        grounded_response
+                    )
+                ),
             },
             processing_time_ms=int(
                 round(
@@ -1473,7 +1508,298 @@ class ChatService:
                 "completed_fields": list(
                     nlu_result.completed_fields
                 ),
+                "destination_routing": (
+                    self._destination_routing_metadata(
+                        grounded_response
+                    )
+                ),
+                "restaurant_schema": (
+                    self._restaurant_schema_metadata(
+                        grounded_response
+                    )
+                ),
+                "official_destination_urls": (
+                    self._destination_urls(
+                        grounded_response
+                    )
+                ),
+                "destination_match_count": (
+                    self._destination_match_count(
+                        grounded_response
+                    )
+                ),
             },
+        )
+
+    # ========================================================
+    # SECTION 16A - DESTINATION ROUTING METADATA
+    # ========================================================
+
+    @staticmethod
+    def _destination_routing_metadata(
+        grounded_response: GroundedResponse,
+    ) -> dict[str, Any]:
+        """
+        Return a defensive copy of destination-routing metadata.
+
+        The response service owns destination matching. The chat service
+        propagates the resulting verified navigation payload without
+        recomputing or mutating it.
+        """
+
+        metadata = (
+            grounded_response.processing_metadata
+            if isinstance(
+                grounded_response.processing_metadata,
+                Mapping,
+            )
+            else {}
+        )
+
+        routing = metadata.get(
+            "destination_routing",
+            {},
+        )
+
+        if not isinstance(
+            routing,
+            Mapping,
+        ):
+            return {}
+
+        return copy.deepcopy(
+            dict(routing)
+        )
+
+    @staticmethod
+    def _restaurant_schema_metadata(
+        grounded_response: GroundedResponse,
+    ) -> dict[str, Any]:
+        """
+        Return Schema.org Restaurant metadata when available.
+        """
+
+        metadata = (
+            grounded_response.processing_metadata
+            if isinstance(
+                grounded_response.processing_metadata,
+                Mapping,
+            )
+            else {}
+        )
+
+        schema = metadata.get(
+            "restaurant_schema",
+            {},
+        )
+
+        if not isinstance(
+            schema,
+            Mapping,
+        ):
+            return {}
+
+        return copy.deepcopy(
+            dict(schema)
+        )
+
+    @classmethod
+    def _destination_matches(
+        cls,
+        grounded_response: GroundedResponse,
+    ) -> list[dict[str, Any]]:
+        routing = cls._destination_routing_metadata(
+            grounded_response
+        )
+
+        matches = routing.get(
+            "matches",
+            [],
+        )
+
+        if not isinstance(
+            matches,
+            Sequence,
+        ) or isinstance(
+            matches,
+            (str, bytes, bytearray),
+        ):
+            return []
+
+        return [
+            copy.deepcopy(
+                dict(match)
+            )
+            for match in matches
+            if isinstance(
+                match,
+                Mapping,
+            )
+        ]
+
+    @classmethod
+    def _destination_match_count(
+        cls,
+        grounded_response: GroundedResponse,
+    ) -> int:
+        routing = cls._destination_routing_metadata(
+            grounded_response
+        )
+
+        raw_count = routing.get(
+            "match_count",
+        )
+
+        if isinstance(
+            raw_count,
+            int,
+        ):
+            return max(
+                raw_count,
+                0,
+            )
+
+        return len(
+            cls._destination_matches(
+                grounded_response
+            )
+        )
+
+    @classmethod
+    def _destination_keys(
+        cls,
+        grounded_response: GroundedResponse,
+    ) -> list[str]:
+        keys: list[str] = []
+
+        for match in cls._destination_matches(
+            grounded_response
+        ):
+            destination = match.get(
+                "destination",
+                {},
+            )
+
+            if not isinstance(
+                destination,
+                Mapping,
+            ):
+                continue
+
+            key = destination.get(
+                "key"
+            )
+
+            if isinstance(
+                key,
+                str,
+            ) and key.strip():
+                keys.append(
+                    key.strip()
+                )
+
+        return list(
+            dict.fromkeys(
+                keys
+            )
+        )
+
+    @classmethod
+    def _destination_urls(
+        cls,
+        grounded_response: GroundedResponse,
+    ) -> list[str]:
+        routing = cls._destination_routing_metadata(
+            grounded_response
+        )
+
+        raw_urls = routing.get(
+            "official_destinations",
+            [],
+        )
+
+        urls: list[str] = []
+
+        if isinstance(
+            raw_urls,
+            Sequence,
+        ) and not isinstance(
+            raw_urls,
+            (str, bytes, bytearray),
+        ):
+            for value in raw_urls:
+                if (
+                    isinstance(
+                        value,
+                        str,
+                    )
+                    and value.startswith(
+                        "https://"
+                    )
+                ):
+                    urls.append(
+                        value
+                    )
+
+        if not urls:
+            for match in cls._destination_matches(
+                grounded_response
+            ):
+                destination = match.get(
+                    "destination",
+                    {},
+                )
+
+                if not isinstance(
+                    destination,
+                    Mapping,
+                ):
+                    continue
+
+                value = destination.get(
+                    "url"
+                )
+
+                if (
+                    isinstance(
+                        value,
+                        str,
+                    )
+                    and value.startswith(
+                        "https://"
+                    )
+                ):
+                    urls.append(
+                        value
+                    )
+
+        return list(
+            dict.fromkeys(
+                urls
+            )
+        )
+
+    @classmethod
+    def _destination_routing_version(
+        cls,
+        grounded_response: GroundedResponse,
+    ) -> str:
+        routing = cls._destination_routing_metadata(
+            grounded_response
+        )
+
+        value = routing.get(
+            "service_version",
+            "",
+        )
+
+        return (
+            value.strip()
+            if isinstance(
+                value,
+                str,
+            )
+            else ""
         )
 
     # ========================================================

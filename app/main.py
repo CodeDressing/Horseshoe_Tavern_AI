@@ -51,7 +51,11 @@ from app.api.chat_routes import (
 from app.api.widget_routes import router as widget_router
 from app.config import get_settings
 from app.database.base import Base
-from app.database.session import engine
+from app.database.session import (
+    create_all_tables,
+    dispose_database_engine,
+    get_engine,
+)
 from app.logging_config import get_logger
 
 
@@ -209,7 +213,7 @@ def _initialize_database_enabled() -> bool:
 
 def _check_database() -> tuple[bool, str | None]:
     try:
-        with engine.connect() as connection:
+        with get_engine().connect() as connection:
             connection.execute(
                 text("SELECT 1")
             )
@@ -235,9 +239,7 @@ def _initialize_database() -> None:
         "Initializing database metadata."
     )
 
-    Base.metadata.create_all(
-        bind=engine
-    )
+    create_all_tables()
 
     logger.info(
         "Database metadata initialization completed."
@@ -333,7 +335,7 @@ async def lifespan(
     )
 
     try:
-        engine.dispose()
+        dispose_database_engine()
     except Exception:
         logger.exception(
             "Database engine disposal failed."
@@ -1131,3 +1133,4 @@ if __name__ == "__main__":
             )
         ).lower(),
     )
+
